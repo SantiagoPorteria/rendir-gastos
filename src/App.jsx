@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
 // ─── SUPABASE ─────────────────────────────────────────────────────────────────
@@ -27,8 +27,8 @@ const getEntityLogo = (ent) => {
 };
 function EntityIcon({entity, size=32}) {
   const logo = getEntityLogo(entity);
-  if(logo) return React.createElement("img",{src:logo,alt:entity?.label||"",style:{width:size,height:size,objectFit:"contain",borderRadius:6,background:"transparent"}});
-  return React.createElement("span",{style:{fontSize:size*0.82,lineHeight:1}},entity?.icon||"📁");
+  if(logo) return <img src={logo} alt={entity?.label||""} style={{width:size,height:size,objectFit:"contain",borderRadius:6,background:"transparent"}}/>;
+  return <span style={{fontSize:size*0.82,lineHeight:1}}>{entity?.icon||"📁"}</span>;
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
