@@ -249,14 +249,30 @@ function NewEntityScreen({profile,nav,onCreated}) {
   const [loading,setLoading]=useState(false);
   const upd=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
 
+  // Load group members when entity changes
+  const loadGroupMembers = async (entityId) => {
+    const ent = entities.find(e=>e.id===entityId);
+    if(ent?.type!=="group"){setGroupMembers([]);setParticipants([]);return;}
+    const {data:members}=await supabase.from("entity_members").select("user_id, profiles(id,nombre,email)").eq("entity_id",entityId);
+    const {data:ownerProfile}=await supabase.from("profiles").select("id,nombre,email").eq("id",ent.owner_id).single();
+    const allMembers=[...(members||[]).map(m=>m.profiles),(ownerProfile?[ownerProfile]:[])].filter(Boolean);
+    // deduplicate
+    const unique = allMembers.filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i);
+    setGroupMembers(unique);
+    setParticipants(unique.map(m=>m.id)); // select all by default
+  };
+
   const save = async () => {
     if(!form.label.trim()){setErr("Ingresá un nombre");return;}
     setLoading(true);
     const {data:userData} = await supabase.auth.getUser();
+    // Generate invite token for group entities
+    const inviteToken = form.type==="group" ? Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2) : null;
     const {data,error} = await supabase.from("entities").insert({
       label:form.label, icon:form.icon, color:form.color,
       type: profile?.role==="admin" ? form.type : form.type==="global"?"personal":form.type,
       owner_id: userData.user.id,
+      invite_token: inviteToken,
     }).select().single();
     if(error){setErr(error.message);setLoading(false);return;}
     onCreated(data);
@@ -332,6 +348,8 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
   const [aiNote,setAiNote]=useState(null);
   const [err,setErr]=useState(null);
   const [saving,setSaving]=useState(false);
+  const [participants,setParticipants]=useState([]);
+  const [groupMembers,setGroupMembers]=useState([]);
   const fileRef=useRef();
   const blank={entity_id:"",comercio:"",rut_comercio:"",monto_total:"",monto_neto:"",iva:"",fecha:todayFn(),tipo_documento:"boleta",numero_documento:"",categoria:"Otro",descripcion:"",nota:""};
   const [form,setForm]=useState(blank);
@@ -363,6 +381,8 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
   const save=async()=>{
     if(!form.entity_id){setErr("Seleccioná la entidad");return;}
     if(!form.monto_total){setErr("Ingresá el monto total");return;}
+    const selectedEntity = entities.find(e=>e.id===form.entity_id);
+    if(selectedEntity?.type==="group" && participants.length===0){setErr("Seleccioná al menos un participante");return;}
     setSaving(true);
     let image_url=null;
     // Upload image to Supabase Storage
@@ -386,6 +406,11 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
       descripcion:form.descripcion, nota:form.nota, image_url,
     }).select().single();
     if(error){setErr(error.message);setSaving(false);return;}
+    // Save participants for group expenses
+    if(participants.length>0 && data?.id) {
+      const participantRows = participants.map(uid=>({expense_id:data.id, user_id:uid}));
+      await supabase.from("expense_participants").insert(participantRows);
+    }
     onSaved(data);
     nav("home");
   };
@@ -458,6 +483,29 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
         <div style={{flex:1}}><div style={S.label}>Fecha</div><input style={S.input} type="date" value={form.fecha} onChange={upd("fecha")}/></div>
         <div style={{flex:1}}><div style={S.label}>Categoría</div><select style={S.input} value={form.categoria} onChange={upd("categoria")}>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
       </div>
+      {/* Participants for group entities */}
+      {groupMembers.length>0&&(
+        <div style={S.group}>
+          <div style={S.label}>¿Quiénes participan en este gasto? *</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {groupMembers.map(m=>{
+              const isSelected=participants.includes(m.id);
+              return (
+                <button key={m.id} onClick={()=>setParticipants(prev=>isSelected?prev.filter(id=>id!==m.id):[...prev,m.id])}
+                  style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,border:`2px solid ${isSelected?"#1a5276":"#e0e0e0"}`,background:isSelected?"#e8f0fe":"#fff",cursor:"pointer",fontFamily:"inherit"}}>
+                  <span style={{fontSize:18}}>{isSelected?"☑️":"⬜"}</span>
+                  <span style={{fontWeight:600,color:isSelected?"#1a5276":"#555",fontSize:14}}>{m.nombre||m.email}</span>
+                </button>
+              );
+            })}
+          </div>
+          {participants.length>0&&form.monto_total&&(
+            <div style={{background:"#f0f7ff",borderRadius:8,padding:"8px 12px",marginTop:8,fontSize:13,color:"#1a5276"}}>
+              Cada uno: <strong>{("$"+Math.round((parseInt(String(form.monto_total).replace(/\D/g,""))||0)/participants.length).toLocaleString("es-CL"))}</strong>
+            </div>
+          )}
+        </div>
+      )}
       <div style={S.group}><div style={S.label}>Descripción</div><input style={S.input} value={form.descripcion} onChange={upd("descripcion")} placeholder="Breve descripción..."/></div>
       <div style={S.group}><div style={S.label}>Nota</div><textarea style={{...S.input,height:64,resize:"none"}} value={form.nota} onChange={upd("nota")} placeholder="Comentario adicional..."/></div>
       <button style={S.btn} onClick={save} disabled={saving}>{saving?"Guardando…":"💾 Guardar Gasto"}</button>
@@ -743,6 +791,233 @@ function SettingsScreen({profile,entities,categories,nav,dispatch}) {
   );
 }
 
+// ─── INVITE SCREEN ───────────────────────────────────────────────────────────
+function InviteScreen({nav}) {
+  const [joining,setJoining]=useState(false);
+  const [msg,setMsg]=useState(null);
+
+  useEffect(()=>{
+    // Check URL for invite token
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("invite");
+    if(token) joinByToken(token);
+  },[]);
+
+  const joinByToken = async (token) => {
+    setJoining(true);
+    // Find entity by token
+    const {data:entity,error}=await supabase.from("entities").select("*").eq("invite_token",token).single();
+    if(error||!entity){setMsg({type:"error",text:"Link inválido o expirado."});setJoining(false);return;}
+    // Get current user
+    const {data:{user}}=await supabase.auth.getUser();
+    if(!user){setMsg({type:"error",text:"Tenés que iniciar sesión primero."});setJoining(false);return;}
+    // Check if already member
+    const {data:existing}=await supabase.from("entity_members").select("id").eq("entity_id",entity.id).eq("user_id",user.id).single();
+    if(existing){setMsg({type:"info",text:`Ya sos miembro de "${entity.label}".`});setJoining(false);return;}
+    // Add as member
+    const {error:joinError}=await supabase.from("entity_members").insert({entity_id:entity.id,user_id:user.id});
+    if(joinError){setMsg({type:"error",text:"Error al unirse: "+joinError.message});setJoining(false);return;}
+    setMsg({type:"success",text:`¡Te uniste a "${entity.label}" exitosamente!`});
+    setJoining(false);
+    // Reload after 2 seconds
+    setTimeout(()=>window.location.href="/",2000);
+  };
+
+  if(joining) return (
+    <div style={{minHeight:"100vh",background:"#f7f5f0",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:20}}>
+      <div style={S.spinner}/>
+      <div style={{fontSize:16,color:"#888"}}>Uniéndote al grupo…</div>
+    </div>
+  );
+
+  return (
+    <div style={{minHeight:"100vh",background:"#f7f5f0",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+      <div style={{background:"#fff",borderRadius:20,padding:32,width:"100%",maxWidth:380,textAlign:"center",boxShadow:"0 4px 24px rgba(0,0,0,.08)"}}>
+        <div style={{fontSize:52,marginBottom:16}}>👥</div>
+        {msg ? (
+          <>
+            <div style={{fontSize:18,fontWeight:700,color:msg.type==="success"?"#1a7a4a":msg.type==="error"?"#b00020":"#1a5276",marginBottom:8}}>
+              {msg.type==="success"?"¡Listo!":msg.type==="error"?"Error":"Info"}
+            </div>
+            <div style={{fontSize:14,color:"#666",marginBottom:24}}>{msg.text}</div>
+            {msg.type!=="success"&&<button style={S.btn} onClick={()=>nav("home")}>Ir al inicio</button>}
+          </>
+        ) : (
+          <>
+            <div style={{fontFamily:"'Georgia',serif",fontSize:22,fontWeight:700,marginBottom:8}}>Invitación a grupo</div>
+            <div style={{fontSize:14,color:"#888",marginBottom:24}}>El link de invitación no es válido o ya expiró.</div>
+            <button style={S.btn} onClick={()=>nav("home")}>Ir al inicio</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── GROUP SPLIT SCREEN ───────────────────────────────────────────────────────
+function GroupSplitScreen({entity,expenses,nav}) {
+  const [members,setMembers]=useState([]);
+  const [expParticipants,setExpParticipants]=useState({});
+  const [loading,setLoading]=useState(true);
+
+  const groupExpenses = expenses.filter(e=>e.entity_id===entity?.id);
+
+  useEffect(()=>{
+    if(!entity)return;
+    (async()=>{
+      // Load members
+      const {data:mems}=await supabase.from("entity_members").select("user_id, profiles(id,nombre,email)").eq("entity_id",entity.id);
+      const {data:owner}=await supabase.from("profiles").select("id,nombre,email").eq("id",entity.owner_id).single();
+      const allMembers=[...(mems||[]).map(m=>m.profiles),(owner?[owner]:[])].filter(Boolean);
+      const unique=allMembers.filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i);
+      setMembers(unique);
+      // Load participants per expense
+      const expIds=groupExpenses.map(e=>e.id);
+      if(expIds.length>0){
+        const {data:parts}=await supabase.from("expense_participants").select("*").in("expense_id",expIds);
+        const map={};
+        (parts||[]).forEach(p=>{if(!map[p.expense_id])map[p.expense_id]=[];map[p.expense_id].push(p.user_id);});
+        setExpParticipants(map);
+      }
+      setLoading(false);
+    })();
+  },[entity?.id]);
+
+  // Calculate who paid and who owes
+  const calcSplit = () => {
+    const paid = {}; // user_id -> total paid
+    const owes = {}; // user_id -> total owes
+    members.forEach(m=>{paid[m.id]=0;owes[m.id]=0;});
+
+    groupExpenses.forEach(exp=>{
+      const payer=exp.user_id;
+      const parts=expParticipants[exp.id]||members.map(m=>m.id);
+      const share=Math.round((exp.monto_total||0)/parts.length);
+      if(paid[payer]!==undefined) paid[payer]+=(exp.monto_total||0);
+      parts.forEach(uid=>{if(owes[uid]!==undefined)owes[uid]+=share;});
+    });
+
+    // Net balance (positive = gets money back, negative = owes money)
+    const balance={};
+    members.forEach(m=>{balance[m.id]=(paid[m.id]||0)-(owes[m.id]||0);});
+    return {paid,owes,balance};
+  };
+
+  const shareWhatsApp = () => {
+    if(!entity)return;
+    const {paid,owes,balance}=calcSplit();
+    const total=groupExpenses.reduce((s,x)=>s+(x.monto_total||0),0);
+    let msg=`💰 *Split de gastos — ${entity.label}*
+
+`;
+    msg+=`Total gastado: ${("$"+total.toLocaleString("es-CL"))}
+
+`;
+    msg+=`*Resumen por persona:*
+`;
+    members.forEach(m=>{
+      const b=balance[m.id]||0;
+      const name=m.nombre||m.email;
+      if(b>0) msg+=`${name}: recibe $${b.toLocaleString("es-CL")} ✅
+`;
+      else if(b<0) msg+=`${name}: debe $${Math.abs(b).toLocaleString("es-CL")} ❌
+`;
+      else msg+=`${name}: está al día ➖
+`;
+    });
+    window.open("https://wa.me/?text="+encodeURIComponent(msg),"_blank");
+  };
+
+  if(loading) return <Spinner text="Calculando split…"/>;
+  if(!entity) return null;
+
+  const {paid,owes,balance}=calcSplit();
+  const total=groupExpenses.reduce((s,x)=>s+(x.monto_total||0),0);
+  const inviteUrl=`${window.location.origin}?invite=${entity.invite_token}`;
+
+  return (
+    <div style={S.page}>
+      <TopBar title={entity.label} onBack={()=>nav("home")} right={
+        <button onClick={shareWhatsApp} style={{background:"#25D366",color:"#fff",border:"none",borderRadius:9,padding:"7px 12px",cursor:"pointer",fontWeight:700,fontSize:12,fontFamily:"inherit"}}>📲 WA</button>
+      }/>
+
+      {/* Invite link */}
+      <div style={{background:"#f0f7ff",border:"1px solid #bee3f8",borderRadius:12,padding:"12px 14px",marginBottom:16}}>
+        <div style={{fontWeight:700,fontSize:13,color:"#1a5276",marginBottom:6}}>🔗 Link de invitación</div>
+        <div style={{fontSize:12,color:"#555",marginBottom:8,wordBreak:"break-all"}}>{inviteUrl}</div>
+        <button onClick={()=>{navigator.clipboard.writeText(inviteUrl);alert("¡Link copiado!");}}
+          style={{background:"#1a5276",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>
+          Copiar link
+        </button>
+        <button onClick={()=>window.open("https://wa.me/?text="+encodeURIComponent("Unite a nuestro grupo de gastos: "+inviteUrl),"_blank")}
+          style={{background:"#25D366",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",marginLeft:8}}>
+          Enviar por WA
+        </button>
+      </div>
+
+      {/* Total */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
+        <div style={{background:"#1a5276"+"10",border:"1px solid #1a5276"+"25",borderRadius:12,padding:"10px",textAlign:"center"}}>
+          <div style={{fontSize:11,color:"#aaa",marginBottom:3}}>Total gastado</div>
+          <div style={{fontFamily:"'Georgia',serif",fontWeight:700,color:"#1a5276",fontSize:18}}>${total.toLocaleString("es-CL")}</div>
+        </div>
+        <div style={{background:"#1a7a4a"+"10",border:"1px solid #1a7a4a"+"25",borderRadius:12,padding:"10px",textAlign:"center"}}>
+          <div style={{fontSize:11,color:"#aaa",marginBottom:3}}>Participantes</div>
+          <div style={{fontFamily:"'Georgia',serif",fontWeight:700,color:"#1a7a4a",fontSize:18}}>{members.length}</div>
+        </div>
+      </div>
+
+      {/* Split summary */}
+      <div style={S.sectionLabel}>Resumen por persona</div>
+      {members.map(m=>{
+        const b=balance[m.id]||0;
+        const p=paid[m.id]||0;
+        const o=owes[m.id]||0;
+        return (
+          <div key={m.id} style={{...S.card,borderLeft:`4px solid ${b>=0?"#1a7a4a":"#c0392b"}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:15}}>{m.nombre||m.email}</div>
+                <div style={{fontSize:12,color:"#888",marginTop:2}}>
+                  Pagó: ${p.toLocaleString("es-CL")} · Le corresponde: ${o.toLocaleString("es-CL")}
+                </div>
+              </div>
+              <div style={{textAlign:"right",marginLeft:12}}>
+                <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:b>=0?"#1a7a4a":"#c0392b"}}>
+                  {b>=0?"+":""}{("$"+Math.abs(b).toLocaleString("es-CL"))}
+                </div>
+                <div style={{fontSize:11,color:"#888"}}>{b>0?"recibe":b<0?"debe":"al día"}</div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Gastos del grupo */}
+      <div style={{...S.sectionLabel,marginTop:20}}>Gastos del grupo</div>
+      {groupExpenses.length===0&&<div style={S.empty}><div>Sin gastos en este grupo todavía</div></div>}
+      {[...groupExpenses].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(exp=>{
+        const parts=expParticipants[exp.id]||[];
+        const payer=members.find(m=>m.id===exp.user_id);
+        return (
+          <div key={exp.id} style={{...S.card,borderLeft:"4px solid #1a5276"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div style={{flex:1}}>
+                <div style={S.cardTitle}>{exp.comercio||"Sin nombre"}</div>
+                <div style={{fontSize:12,color:"#888",marginTop:2}}>Pagó: {payer?.nombre||payer?.email||"?"}</div>
+                {parts.length>0&&<div style={{fontSize:11,color:"#aaa",marginTop:2}}>Participantes: {parts.length} · ${Math.round((exp.monto_total||0)/parts.length).toLocaleString("es-CL")} c/u</div>}
+                <div style={S.meta}>{iso2d(exp.fecha)} · {exp.categoria}</div>
+              </div>
+              <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:"#1a5276",marginLeft:8}}>${(exp.monto_total||0).toLocaleString("es-CL")}</div>
+            </div>
+          </div>
+        );
+      })}
+      <div style={{height:40}}/>
+    </div>
+  );
+}
+
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [user,setUser]           = useState(null);
@@ -755,6 +1030,12 @@ export default function App() {
   const [screenParams,setParams] = useState({});
 
   const nav = useCallback((s,params={})=>{setScreen(s);setParams(params||{});});
+
+  // Check for invite token in URL on load
+  useEffect(()=>{
+    const params = new URLSearchParams(window.location.search);
+    if(params.get("invite")) setScreen("invite");
+  },[]);
 
   // Auth listener
   useEffect(()=>{
