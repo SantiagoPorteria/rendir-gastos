@@ -475,10 +475,32 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
       <div style={S.group}><div style={S.label}>Comercio</div><input style={S.input} value={form.comercio} onChange={upd("comercio")} placeholder="ej: Copec, Sodimac..."/></div>
       <div style={S.group}><div style={S.label}>RUT comercio</div><input style={S.input} value={form.rut_comercio} onChange={upd("rut_comercio")} placeholder="ej: 76.123.456-7"/></div>
       <div style={S.row}>
-        <div style={{flex:1}}><div style={S.label}>Neto</div><input style={S.input} type="number" value={form.monto_neto} onChange={upd("monto_neto")} placeholder="0"/></div>
-        <div style={{flex:1}}><div style={S.label}>IVA</div><input style={S.input} type="number" value={form.iva} onChange={upd("iva")} placeholder="0"/></div>
+        <div style={{flex:1}}>
+          <div style={S.label}>Neto</div>
+          <input style={S.input} type="number" value={form.monto_neto}
+            onChange={e=>{
+              const neto=parseInt(e.target.value)||0;
+              const iva=Math.round(neto*0.19);
+              const total=neto+iva;
+              setForm(f=>({...f,monto_neto:e.target.value,iva:iva||"",monto_total:total||""}));
+            }} placeholder="0"/>
+        </div>
+        <div style={{flex:1}}>
+          <div style={S.label}>IVA (19% auto)</div>
+          <input style={{...S.input,background:"#f9f9f9"}} type="number" value={form.iva}
+            onChange={e=>{
+              const iva=parseInt(e.target.value)||0;
+              const neto=parseInt(String(form.monto_neto))||0;
+              setForm(f=>({...f,iva:e.target.value,monto_total:(neto+iva)||""}));
+            }} placeholder="0"/>
+        </div>
       </div>
-      <div style={S.group}><div style={S.label}>Monto total *</div><input style={{...S.input,fontSize:18,fontWeight:700}} type="number" value={form.monto_total} onChange={upd("monto_total")} placeholder="0"/></div>
+      <div style={S.group}>
+        <div style={S.label}>Monto total *</div>
+        <input style={{...S.input,fontSize:18,fontWeight:700}} type="number" value={form.monto_total}
+          onChange={upd("monto_total")} placeholder="0"/>
+        {form.monto_neto&&!form.iva&&<div style={{fontSize:11,color:"#aaa",marginTop:4}}>¿Sin IVA? El total es el mismo que el neto.</div>}
+      </div>
       <div style={S.row}>
         <div style={{flex:1}}><div style={S.label}>Fecha</div><input style={S.input} type="date" value={form.fecha} onChange={upd("fecha")}/></div>
         <div style={{flex:1}}><div style={S.label}>Categoría</div><select style={S.input} value={form.categoria} onChange={upd("categoria")}>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
