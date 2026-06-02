@@ -183,7 +183,7 @@ function HomeScreen({profile,entities,expenses,nav,onSignOut}) {
           const cnt=expenses.filter(x=>x.entity_id===e.id).length;
           const typeTag = e.type==="group"?"👥":e.type==="global"?"🌐":"";
           return (
-            <div key={e.id} onClick={()=>nav("report",{entityId:e.id})}
+            <div key={e.id} onClick={()=>e.type==="group"?nav("groupSplit",{entityId:e.id}):nav("report",{entityId:e.id})}
               style={{background:e.color+"12",border:`1.5px solid ${e.color}33`,borderRadius:14,padding:"14px 12px",cursor:"pointer"}}>
               <div style={{marginBottom:6,display:"flex",alignItems:"center",justifyContent:"flex-start"}}><EntityIcon entity={e} size={32}/></div>
               <div style={{fontSize:11,fontWeight:700,color:e.color,lineHeight:1.2,marginBottom:4}}>
@@ -1056,12 +1056,12 @@ export default function App() {
     const {data:prof}=await supabase.from("profiles").select("*").eq("id",u.id).single();
     setProfile(prof);
     // Load entities (owned + member of)
-    const {data:ownedEnts}=await supabase.from("entities").select("*").eq("owner_id",u.id);
+    const {data:ownedEnts}=await supabase.from("entities").select("id,label,icon,color,type,owner_id,invite_token").eq("owner_id",u.id);
     const {data:memberEnts}=await supabase.from("entity_members").select("entity_id").eq("user_id",u.id);
     const memberEntityIds=(memberEnts||[]).map(m=>m.entity_id);
     let allEntities=[...(ownedEnts||[])];
     if(memberEntityIds.length>0){
-      const {data:mEnts}=await supabase.from("entities").select("*").in("id",memberEntityIds);
+      const {data:mEnts}=await supabase.from("entities").select("id,label,icon,color,type,owner_id,invite_token").in("id",memberEntityIds);
       allEntities=[...allEntities,...(mEnts||[]).filter(e=>!allEntities.find(x=>x.id===e.id))];
     }
     setEntities(allEntities);
@@ -1110,6 +1110,8 @@ export default function App() {
       {screen==="newEntity" && <NewEntityScreen {...commonProps} onCreated={e=>setEntities(prev=>[...prev,e])}/>}
       {screen==="admin"     && <AdminScreen   {...commonProps}/>}
       {screen==="settings"  && <SettingsScreen {...commonProps}/>}
+      {screen==="groupSplit" && <GroupSplitScreen entity={entities.find(e=>e.id===screenParams?.entityId)} expenses={expenses} nav={nav}/>}
+      {screen==="invite"     && <InviteScreen nav={nav}/>}
     </div>
   );
 }
