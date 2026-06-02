@@ -665,10 +665,12 @@ function AdminScreen({entities,nav}) {
 
   const toggleAccess=async(userId,entityId,hasAccess)=>{
     if(hasAccess){
-      await supabase.from("entity_members").delete().eq("user_id",userId).eq("entity_id",entityId);
+      const {error}=await supabase.from("entity_members").delete().eq("user_id",userId).eq("entity_id",entityId);
+      if(error){alert("Error al quitar acceso: "+error.message);return;}
       setMemberships(m=>({...m,[userId]:(m[userId]||[]).filter(id=>id!==entityId)}));
     } else {
-      await supabase.from("entity_members").insert({user_id:userId,entity_id:entityId});
+      const {error}=await supabase.from("entity_members").insert({user_id:userId,entity_id:entityId,can_write:true});
+      if(error){alert("Error al dar acceso: "+error.message);return;}
       setMemberships(m=>({...m,[userId]:[...(m[userId]||[]),entityId]}));
     }
   };
