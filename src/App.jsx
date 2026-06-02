@@ -12,6 +12,25 @@ const MONTH_NAMES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","A
 const DEFAULT_CATEGORIES = ["Bencina","Almuerzos","Gastos Oficina","Peajes","Estacionamientos","Supermercado","Restaurantes","Clientes","Merchandising","Eventos","Otro"];
 const ENTITY_ICONS = ["🏢","🏗️","🏠","🚗","✈️","🎉","🤝","💼","🏪","⚽","🎨","📦"];
 
+const ENTITY_LOGOS = {
+  "porteria":  "https://logxraqrwfqfoxtfbcxk.supabase.co/storage/v1/object/public/Logos/porteria-icon.png",
+  "bl_activos":"https://logxraqrwfqfoxtfbcxk.supabase.co/storage/v1/object/public/Logos/isotipo%20verde.png",
+};
+const getEntityLogo = (ent) => {
+  if(!ent) return null;
+  if(ent.logo_url) return ent.logo_url;
+  if(ENTITY_LOGOS[ent.id]) return ENTITY_LOGOS[ent.id];
+  const lbl = (ent.label||"").toLowerCase();
+  if(lbl.includes("porteria")||lbl.includes("portería")) return ENTITY_LOGOS["porteria"];
+  if(lbl.includes("bl")||lbl.includes("activo")) return ENTITY_LOGOS["bl_activos"];
+  return null;
+};
+function EntityIcon({entity, size=32}) {
+  const logo = getEntityLogo(entity);
+  if(logo) return React.createElement("img",{src:logo,alt:entity?.label||"",style:{width:size,height:size,objectFit:"contain",borderRadius:6,background:"transparent"}});
+  return React.createElement("span",{style:{fontSize:size*0.82,lineHeight:1}},entity?.icon||"📁");
+}
+
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const clp     = n  => "$" + Math.round(Number(n)||0).toLocaleString("es-CL");
 const iso2d   = s  => { if(!s)return""; const[y,m,d]=s.split("-"); return`${d}/${m}/${y}`; };
@@ -166,7 +185,7 @@ function HomeScreen({profile,entities,expenses,nav,onSignOut}) {
           return (
             <div key={e.id} onClick={()=>nav("report",{entityId:e.id})}
               style={{background:e.color+"12",border:`1.5px solid ${e.color}33`,borderRadius:14,padding:"14px 12px",cursor:"pointer"}}>
-              <div style={{fontSize:26,marginBottom:4}}>{e.icon}</div>
+              <div style={{marginBottom:6,display:"flex",alignItems:"center",justifyContent:"flex-start"}}><EntityIcon entity={e} size={32}/></div>
               <div style={{fontSize:11,fontWeight:700,color:e.color,lineHeight:1.2,marginBottom:4}}>
                 {e.label} {typeTag&&<span style={{fontSize:10}}>{typeTag}</span>}
               </div>
@@ -413,7 +432,7 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
           {entities.map(e=>(
             <button key={e.id} onClick={()=>setForm(f=>({...f,entity_id:e.id}))}
               style={{display:"flex",alignItems:"center",gap:12,padding:"13px 16px",borderRadius:12,border:`2px solid ${form.entity_id===e.id?e.color:"#e0e0e0"}`,background:form.entity_id===e.id?e.color+"15":"#fff",cursor:"pointer",fontFamily:"inherit"}}>
-              <span style={{fontSize:24}}>{e.icon}</span>
+              <EntityIcon entity={e} size={28}/>
               <div style={{flex:1,textAlign:"left"}}>
                 <div style={{fontWeight:700,color:e.color,fontSize:14}}>{e.label}</div>
                 <div style={{fontSize:11,color:"#aaa"}}>{e.type==="group"?"Grupal":e.type==="global"?"Global":"Personal"}</div>
@@ -703,7 +722,7 @@ function SettingsScreen({profile,entities,categories,nav,dispatch}) {
           <div style={S.sectionLabel}>Tus entidades</div>
           {entities.map(e=>(
             <div key={e.id} style={{...S.card,display:"flex",alignItems:"center",gap:10}}>
-              <span style={{fontSize:22}}>{e.icon}</span>
+              <EntityIcon entity={e} size={26}/>
               <div style={{flex:1}}>
                 <div style={{fontWeight:700,color:e.color,fontSize:14}}>{e.label}</div>
                 <div style={{fontSize:11,color:"#aaa"}}>{e.type==="group"?"👥 Grupal":e.type==="global"?"🌐 Global":"🔒 Personal"}</div>
