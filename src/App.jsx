@@ -837,38 +837,110 @@ function SettingsScreen({profile,entities,categories,nav,dispatch}) {
 function InviteScreen({nav}) {
   const [joining,setJoining]=useState(false);
   const [msg,setMsg]=useState(null);
+  const [entity,setEntity]=useState(null);
+  const [needsAuth,setNeedsAuth]=useState(false);
+  const [authMode,setAuthMode]=useState("login");
+  const [email,setEmail]=useState("");
+  const [pass,setPass]=useState("");
+  const [nombre,setNombre]=useState("");
+  const [authErr,setAuthErr]=useState(null);
+  const tokenRef = useRef(null);
 
   useEffect(()=>{
-    // Check URL for invite token
     const params = new URLSearchParams(window.location.search);
     const token = params.get("invite");
-    if(token) joinByToken(token);
+    if(token){
+      tokenRef.current = token;
+      processInvite(token);
+    }
   },[]);
 
-  const joinByToken = async (token) => {
+  const processInvite = async (token) => {
     setJoining(true);
-    // Find entity by token
-    const {data:entity,error}=await supabase.from("entities").select("*").eq("invite_token",token).single();
-    if(error||!entity){setMsg({type:"error",text:"Link inválido o expirado."});setJoining(false);return;}
-    // Get current user
+    // Find entity
+    const {data:ent,error}=await supabase.from("entities").select("*").eq("invite_token",token).single();
+    if(error||!ent){setMsg({type:"error",text:"Link inválido o expirado."});setJoining(false);return;}
+    setEntity(ent);
+    // Check if logged in
     const {data:{user}}=await supabase.auth.getUser();
-    if(!user){setMsg({type:"error",text:"Tenés que iniciar sesión primero."});setJoining(false);return;}
-    // Check if already member
-    const {data:existing}=await supabase.from("entity_members").select("id").eq("entity_id",entity.id).eq("user_id",user.id).single();
-    if(existing){setMsg({type:"info",text:`Ya sos miembro de "${entity.label}".`});setJoining(false);return;}
-    // Add as member
-    const {error:joinError}=await supabase.from("entity_members").insert({entity_id:entity.id,user_id:user.id});
+    if(!user){setNeedsAuth(true);setJoining(false);return;}
+    joinGroup(ent, user);
+  };
+
+  const joinGroup = async (ent, user) => {
+    setJoining(true);
+    const {data:existing}=await supabase.from("entity_members").select("id").eq("entity_id",ent.id).eq("user_id",user.id).single();
+    if(existing){setMsg({type:"info",text:`Ya sos miembro de "${ent.label}".`});setJoining(false);return;}
+    const {error:joinError}=await supabase.from("entity_members").insert({entity_id:ent.id,user_id:user.id});
     if(joinError){setMsg({type:"error",text:"Error al unirse: "+joinError.message});setJoining(false);return;}
-    setMsg({type:"success",text:`¡Te uniste a "${entity.label}" exitosamente!`});
+    setMsg({type:"success",text:`¡Te uniste a "${ent.label}" exitosamente!`});
     setJoining(false);
-    // Reload after 2 seconds
     setTimeout(()=>window.location.href="/",2000);
   };
+
+  const handleAuth = async () => {
+    setAuthErr(null); setJoining(true);
+    try {
+      let user;
+      if(authMode==="login"){
+        const {data,error}=await supabase.auth.signInWithPassword({email,password:pass});
+        if(error) throw error;
+        user=data.user;
+      } else {
+        const {data,error}=await supabase.auth.signUp({email,password:pass,options:{data:{nombre}}});
+        if(error) throw error;
+        user=data.user;
+      }
+      if(user && entity) joinGroup(entity, user);
+    } catch(e){setAuthErr(e.message);setJoining(false);}
+  };
+
+  const joinByToken = async (token) => { processInvite(token); };
 
   if(joining) return (
     <div style={{minHeight:"100vh",background:"#f7f5f0",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:20}}>
       <div style={S.spinner}/>
       <div style={{fontSize:16,color:"#888"}}>Uniéndote al grupo…</div>
+    </div>
+  );
+
+  // Need to login/register first
+  if(needsAuth && entity && !msg) return (
+    <div style={{minHeight:"100vh",background:"#f7f5f0",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:380,boxShadow:"0 4px 24px rgba(0,0,0,.08)"}}>
+        <div style={{textAlign:"center",marginBottom:20}}>
+          <div style={{fontSize:44,marginBottom:8}}>👥</div>
+          <div style={{fontFamily:"'Georgia',serif",fontSize:20,fontWeight:700}}>Unirte a {entity.label}</div>
+          <div style={{fontSize:13,color:"#888",marginTop:4}}>
+            {authMode==="login"?"Entrá con tu cuenta para unirte":"Creá una cuenta para unirte al grupo"}
+          </div>
+        </div>
+        {authErr&&<div style={{background:"#fde8e8",color:"#b00020",borderRadius:10,padding:"10px",marginBottom:12,fontSize:13}}>{authErr}</div>}
+        {authMode==="register"&&(
+          <div style={S.group}>
+            <div style={S.label}>Nombre</div>
+            <input style={S.input} value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Tu nombre"/>
+          </div>
+        )}
+        <div style={S.group}>
+          <div style={S.label}>Email</div>
+          <input style={S.input} type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@email.com"/>
+        </div>
+        <div style={S.group}>
+          <div style={S.label}>Contraseña</div>
+          <input style={S.input} type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="••••••••"
+            onKeyDown={e=>e.key==="Enter"&&handleAuth()}/>
+        </div>
+        <button style={S.btn} onClick={handleAuth}>
+          {authMode==="login"?"Entrar y unirme":"Registrarme y unirme"}
+        </button>
+        <div style={{textAlign:"center",marginTop:14,fontSize:13,color:"#888"}}>
+          {authMode==="login"
+            ? <span>¿No tenés cuenta? <button onClick={()=>setAuthMode("register")} style={{background:"none",border:"none",color:"#1a5276",cursor:"pointer",fontWeight:700,fontSize:13}}>Registrarse</button></span>
+            : <span>¿Ya tenés cuenta? <button onClick={()=>setAuthMode("login")} style={{background:"none",border:"none",color:"#1a5276",cursor:"pointer",fontWeight:700,fontSize:13}}>Entrar</button></span>
+          }
+        </div>
+      </div>
     </div>
   );
 
@@ -879,9 +951,10 @@ function InviteScreen({nav}) {
         {msg ? (
           <>
             <div style={{fontSize:18,fontWeight:700,color:msg.type==="success"?"#1a7a4a":msg.type==="error"?"#b00020":"#1a5276",marginBottom:8}}>
-              {msg.type==="success"?"¡Listo!":msg.type==="error"?"Error":"Info"}
+              {msg.type==="success"?"¡Te uniste!":msg.type==="error"?"Error":"Info"}
             </div>
             <div style={{fontSize:14,color:"#666",marginBottom:24}}>{msg.text}</div>
+            {msg.type==="success"&&<div style={{fontSize:13,color:"#aaa"}}>Redirigiendo a la app…</div>}
             {msg.type!=="success"&&<button style={S.btn} onClick={()=>nav("home")}>Ir al inicio</button>}
           </>
         ) : (
