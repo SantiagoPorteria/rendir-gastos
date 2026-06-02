@@ -252,14 +252,16 @@ function NewEntityScreen({profile,nav,onCreated}) {
   // Load group members when entity changes
   const loadGroupMembers = async (entityId) => {
     const ent = entities.find(e=>e.id===entityId);
-    if(ent?.type!=="group"){setGroupMembers([]);setParticipants([]);return;}
-    const {data:members}=await supabase.from("entity_members").select("user_id, profiles(id,nombre,email)").eq("entity_id",entityId);
-    const {data:ownerProfile}=await supabase.from("profiles").select("id,nombre,email").eq("id",ent.owner_id).single();
-    const allMembers=[...(members||[]).map(m=>m.profiles),(ownerProfile?[ownerProfile]:[])].filter(Boolean);
-    // deduplicate
-    const unique = allMembers.filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i);
+    if(ent?.type!=="group"){setGroupMembers([]);setParticipants([]);setPayer(userId);return;}
+    // Load members from entity_members
+    const {data:members}=await supabase.from("entity_members").select("user_id").eq("entity_id",entityId);
+    const memberIds=[...new Set([...(members||[]).map(m=>m.user_id), ent.owner_id, userId])];
+    // Load profiles for all member ids
+    const {data:profiles}=await supabase.from("profiles").select("id,nombre,email").in("id",memberIds);
+    const unique=(profiles||[]).filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i);
     setGroupMembers(unique);
     setParticipants(unique.map(m=>m.id)); // select all by default
+    setPayer(userId); // current user paid by default
   };
 
   const save = async () => {
@@ -350,6 +352,7 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
   const [saving,setSaving]=useState(false);
   const [participants,setParticipants]=useState([]);
   const [groupMembers,setGroupMembers]=useState([]);
+  const [payer,setPayer]=useState(userId);
   const fileRef=useRef();
   const blank={entity_id:"",comercio:"",rut_comercio:"",monto_total:"",monto_neto:"",iva:"",fecha:todayFn(),tipo_documento:"boleta",numero_documento:"",categoria:"Otro",descripcion:"",nota:""};
   const [form,setForm]=useState(blank);
@@ -396,7 +399,7 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
       }
     }
     const {data,error}=await supabase.from("expenses").insert({
-      entity_id:form.entity_id, user_id:userId,
+      entity_id:form.entity_id, user_id:groupMembers.length>0?payer:userId,
       comercio:form.comercio, rut_comercio:form.rut_comercio,
       monto_total:parseInt(String(form.monto_total).replace(/\D/g,""))||0,
       monto_neto:parseInt(String(form.monto_neto).replace(/\D/g,""))||0,
@@ -505,7 +508,22 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
         <div style={{flex:1}}><div style={S.label}>Fecha</div><input style={S.input} type="date" value={form.fecha} onChange={upd("fecha")}/></div>
         <div style={{flex:1}}><div style={S.label}>Categoría</div><select style={S.input} value={form.categoria} onChange={upd("categoria")}>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
       </div>
-      {/* Participants for group entities */}
+      {/* Payer + Participants for group entities */}
+      {groupMembers.length>0&&(
+        <div style={S.group}>
+          <div style={S.label}>¿Quién pagó? *</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
+            {groupMembers.map(m=>(
+              <button key={m.id} onClick={()=>setPayer(m.id)}
+                style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,border:`2px solid ${payer===m.id?"#b7770d":"#e0e0e0"}`,background:payer===m.id?"#fff8e1":"#fff",cursor:"pointer",fontFamily:"inherit"}}>
+                <span style={{fontSize:18}}>{payer===m.id?"💳":"○"}</span>
+                <span style={{fontWeight:600,color:payer===m.id?"#b7770d":"#555",fontSize:14}}>{m.nombre||m.email}</span>
+                {m.id===userId&&<span style={{fontSize:11,color:"#aaa"}}>(yo)</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {groupMembers.length>0&&(
         <div style={S.group}>
           <div style={S.label}>¿Quiénes participan en este gasto? *</div>
