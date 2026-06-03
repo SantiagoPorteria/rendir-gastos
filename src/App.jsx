@@ -1047,13 +1047,13 @@ function GroupSplitScreen({entity,expenses,nav}) {
   const [expParticipants,setExpParticipants]=useState({});
   const [loading,setLoading]=useState(true);
   const [view,setView]=useState("detailed");
-  const [tab,setTab]=useState("split"); // split | gastos
+  const [tab,setTab]=useState("split");
   const [deleting,setDeleting]=useState(null);
   const [editing,setEditing]=useState(null);
   const [editForm,setEditForm]=useState({});
   const [savingEdit,setSavingEdit]=useState(false);
 
-  const groupExpenses = expenses.filter(e=>e.entity_id===entity?.id);
+  const groupExpenses=expenses.filter(e=>e.entity_id===entity?.id);
 
   useEffect(()=>{
     if(!entity)return;
@@ -1061,10 +1061,8 @@ function GroupSplitScreen({entity,expenses,nav}) {
       const memberIds_set=new Set([entity.owner_id]);
       const {data:mems}=await supabase.from("entity_members").select("user_id").eq("entity_id",entity.id);
       (mems||[]).forEach(m=>memberIds_set.add(m.user_id));
-      const memberIds=[...memberIds_set];
-      const {data:profiles}=await supabase.from("profiles").select("id,nombre,email").in("id",memberIds);
-      const unique=(profiles||[]).filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i);
-      setMembers(unique);
+      const {data:profiles}=await supabase.from("profiles").select("id,nombre,email").in("id",[...memberIds_set]);
+      setMembers((profiles||[]).filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i));
       const expIds=groupExpenses.map(e=>e.id);
       if(expIds.length>0){
         const {data:parts}=await supabase.from("expense_participants").select("*").in("expense_id",expIds);
@@ -1077,13 +1075,12 @@ function GroupSplitScreen({entity,expenses,nav}) {
   },[entity?.id]);
 
   const calcSplit=()=>{
-    const paid={}, owes={};
+    const paid={},owes={};
     members.forEach(m=>{paid[m.id]=0;owes[m.id]=0;});
     groupExpenses.forEach(exp=>{
-      const payer=exp.user_id;
       const parts=expParticipants[exp.id]||members.map(m=>m.id);
-      const share=Math.round((exp.monto_total||0)/parts.length);
-      if(paid[payer]!==undefined) paid[payer]+=(exp.monto_total||0);
+      const share=Math.round((exp.monto_total||0)/Math.max(parts.length,1));
+      if(paid[exp.user_id]!==undefined) paid[exp.user_id]+=(exp.monto_total||0);
       parts.forEach(uid=>{if(owes[uid]!==undefined)owes[uid]+=share;});
     });
     const balance={};
@@ -1092,48 +1089,39 @@ function GroupSplitScreen({entity,expenses,nav}) {
   };
 
   const calcSimplified=(balance)=>{
-    const creds=members.filter(m=>balance[m.id]>0).map(m=>({...m,amt:balance[m.id]})).sort((a,b)=>b.amt-a.amt);
-    const debts=members.filter(m=>balance[m.id]<0).map(m=>({...m,amt:-balance[m.id]})).sort((a,b)=>b.amt-a.amt);
-    const transactions=[];
+    const c=members.filter(m=>balance[m.id]>0).map(m=>({...m,amt:balance[m.id]})).sort((a,b)=>b.amt-a.amt);
+    const d=members.filter(m=>balance[m.id]<0).map(m=>({...m,amt:-balance[m.id]})).sort((a,b)=>b.amt-a.amt);
+    const tx=[];
     let ci=0,di=0;
-    const c=creds.map(x=>({...x})), d=debts.map(x=>({...x}));
-    while(ci<c.length&&di<d.length){
-      const amount=Math.min(c[ci].amt,d[di].amt);
-      if(amount>0) transactions.push({from:d[di],to:c[ci],amount});
-      c[ci].amt-=amount; d[di].amt-=amount;
-      if(c[ci].amt<=0)ci++; if(d[di].amt<=0)di++;
+    const cc=c.map(x=>({...x})),dd=d.map(x=>({...x}));
+    while(ci<cc.length&&di<dd.length){
+      const amt=Math.min(cc[ci].amt,dd[di].amt);
+      if(amt>0) tx.push({from:dd[di],to:cc[ci],amount:amt});
+      cc[ci].amt-=amt;dd[di].amt-=amt;
+      if(cc[ci].amt<=0)ci++;if(dd[di].amt<=0)di++;
     }
-    return transactions;
+    return tx;
   };
 
-  const startEdit=(exp)=>{
-    setEditing(exp.id);
-    setEditForm({comercio:exp.comercio||"",rut_comercio:exp.rut_comercio||"",monto_total:exp.monto_total||"",monto_neto:exp.monto_neto||"",iva:exp.iva||"",fecha:exp.fecha||"",tipo_documento:exp.tipo_documento||"boleta",numero_documento:exp.numero_documento||"",categoria:exp.categoria||"Otro",descripcion:exp.descripcion||"",nota:exp.nota||""});
-  };
-  const saveEdit=async(expId,categories)=>{
-    setSavingEdit(true);
-    const {data,error}=await supabase.from("expenses").update({comercio:editForm.comercio,rut_comercio:editForm.rut_comercio,monto_total:parseInt(String(editForm.monto_total).replace(/[^0-9]/g,""))||0,monto_neto:parseInt(String(editForm.monto_neto).replace(/[^0-9]/g,""))||0,iva:parseInt(String(editForm.iva).replace(/[^0-9]/g,""))||0,fecha:editForm.fecha,tipo_documento:editForm.tipo_documento,numero_documento:editForm.numero_documento,categoria:editForm.categoria,descripcion:editForm.descripcion,nota:editForm.nota}).eq("id",expId).select().single();
-    setSavingEdit(false);
-    setEditing(null);
-  };
+  const startEdit=(exp)=>{setEditing(exp.id);setEditForm({comercio:exp.comercio||"",rut_comercio:exp.rut_comercio||"",monto_total:exp.monto_total||"",monto_neto:exp.monto_neto||"",iva:exp.iva||"",fecha:exp.fecha||"",tipo_documento:exp.tipo_documento||"boleta",numero_documento:exp.numero_documento||"",categoria:exp.categoria||"Otro",descripcion:exp.descripcion||"",nota:exp.nota||""});};
+  const saveEdit=async(expId)=>{setSavingEdit(true);await supabase.from("expenses").update({comercio:editForm.comercio,rut_comercio:editForm.rut_comercio,monto_total:parseInt(String(editForm.monto_total).replace(/[^0-9]/g,""))||0,monto_neto:parseInt(String(editForm.monto_neto).replace(/[^0-9]/g,""))||0,iva:parseInt(String(editForm.iva).replace(/[^0-9]/g,""))||0,fecha:editForm.fecha,tipo_documento:editForm.tipo_documento,numero_documento:editForm.numero_documento,categoria:editForm.categoria,descripcion:editForm.descripcion,nota:editForm.nota}).eq("id",expId);setSavingEdit(false);setEditing(null);};
   const updEdit=k=>e=>setEditForm(f=>({...f,[k]:e.target.value}));
 
   const shareWA=()=>{
     if(!entity)return;
     const {paid,owes,balance}=calcSplit();
-    const transactions=calcSimplified(balance);
+    const tx=calcSimplified(balance);
     const total=groupExpenses.reduce((s,x)=>s+(x.monto_total||0),0);
     let msg=`💰 *Split — ${entity.label}*
-
 Total: $${total.toLocaleString("es-CL")}
 
 *PAGOS*
 `;
-    members.forEach(m=>{msg+=`${m.nombre||m.email}: $${(paid[m.id]||0).toLocaleString("es-CL")} pagó / $${(owes[m.id]||0).toLocaleString("es-CL")} le corresponde
+    members.forEach(m=>{msg+=`${m.nombre||m.email}: pagó $${(paid[m.id]||0).toLocaleString("es-CL")} / le corresponde $${(owes[m.id]||0).toLocaleString("es-CL")}
 `;});
-    if(transactions.length>0){msg+=`
+    if(tx.length>0){msg+=`
 *TRANSFERENCIAS*
-`;transactions.forEach(t=>{msg+=`${t.from.nombre||t.from.email} → ${t.to.nombre||t.to.email}: $${t.amount.toLocaleString("es-CL")}
+`;tx.forEach(t=>{msg+=`${t.from.nombre||t.from.email} → ${t.to.nombre||t.to.email}: $${t.amount.toLocaleString("es-CL")}
 `;});}
     window.open("https://wa.me/?text="+encodeURIComponent(msg),"_blank");
   };
@@ -1142,10 +1130,11 @@ Total: $${total.toLocaleString("es-CL")}
   if(!entity) return null;
 
   const {paid,owes,balance}=calcSplit();
-  const transactions=calcSimplified(balance);
+  const tx=calcSimplified(balance);
   const total=groupExpenses.reduce((s,x)=>s+(x.monto_total||0),0);
   const perPerson=members.length>0?Math.round(total/members.length):0;
   const inviteUrl=`https://rendir-gastos-sli.vercel.app?invite=${entity.invite_token}`;
+  const CATS=["Bencina","Almuerzos","Gastos Oficina","Peajes","Estacionamientos","Supermercado","Restaurantes","Clientes","Merchandising","Eventos","Otro"];
 
   return (
     <div style={S.page}>
@@ -1160,33 +1149,35 @@ Total: $${total.toLocaleString("es-CL")}
         ))}
       </div>
 
-      {tab==="gastos"&&(
-        <>
-          {groupExpenses.length===0&&<div style={S.empty}><div style={{fontSize:40}}>📋</div><div>Sin gastos todavía</div></div>}
+      {/* GASTOS TAB */}
+      {tab==="gastos" && (
+        <div>
+          {groupExpenses.length===0 && <div style={S.empty}><div style={{fontSize:40}}>📋</div><div>Sin gastos todavía</div></div>}
           {[...groupExpenses].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(exp=>{
             const payer=members.find(m=>m.id===exp.user_id);
             const parts=expParticipants[exp.id]||[];
             return (
               <div key={exp.id} style={{...S.card,borderLeft:`4px solid ${entity.color}`}}>
-                {exp.image_url&&<img src={exp.image_url} alt="" style={{width:56,height:56,objectFit:"cover",borderRadius:8,float:"right",marginLeft:8}}/>}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                  <div style={S.cardTitle}>{exp.comercio||"Sin nombre"}</div>
+                  <div style={{flex:1}}>
+                    <div style={S.cardTitle}>{exp.comercio||"Sin nombre"}</div>
+                    <div style={{fontSize:12,color:"#888",marginTop:2}}>💳 <strong>{payer?.nombre||payer?.email||"?"}</strong></div>
+                    {parts.length>0 && <div style={{fontSize:11,color:"#aaa",marginTop:2}}>👥 {parts.length} personas · {clp(Math.round((exp.monto_total||0)/Math.max(parts.length,1)))} c/u</div>}
+                    <div style={{display:"flex",gap:5,margin:"4px 0"}}><Badge color="#666">{exp.categoria}</Badge></div>
+                    {exp.descripcion && <div style={S.desc}>{exp.descripcion}</div>}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
+                      <div style={S.meta}>{iso2d(exp.fecha)}</div>
+                      <div style={{display:"flex",gap:4}}>
+                        <button onClick={()=>{editing===exp.id?setEditing(null):startEdit(exp);}} style={{background:editing===exp.id?"#e8f0fe":"none",border:"none",color:"#1a5276",cursor:"pointer",fontSize:14,padding:"3px 6px",borderRadius:6}}>✏️</button>
+                        <button onClick={()=>setDeleting(exp.id)} style={{background:"none",border:"none",color:"#ddd",cursor:"pointer",fontSize:14,padding:"3px 6px"}}>🗑️</button>
+                      </div>
+                    </div>
+                  </div>
                   <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:entity.color,marginLeft:8}}>{clp(exp.monto_total)}</div>
                 </div>
-                <div style={{fontSize:12,color:"#888",marginTop:2}}>💳 <strong>{payer?.nombre||payer?.email||"?"}</strong></div>
-                {parts.length>0&&<div style={{fontSize:11,color:"#aaa",marginTop:2}}>👥 {parts.length} personas · {clp(Math.round((exp.monto_total||0)/Math.max(parts.length,1)))} c/u</div>}
-                <Badge color="#666">{exp.categoria}</Badge>
-                {exp.descripcion&&<div style={S.desc}>{exp.descripcion}</div>}
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6,clear:"both"}}>
-                  <div style={S.meta}>{iso2d(exp.fecha)}</div>
-                  <div style={{display:"flex",gap:4}}>
-                    <button onClick={()=>{editing===exp.id?setEditing(null):startEdit(exp);}} style={{background:editing===exp.id?"#e8f0fe":"none",border:"none",color:"#1a5276",cursor:"pointer",fontSize:14,padding:"3px 6px",borderRadius:6}}>✏️</button>
-                    <button onClick={()=>setDeleting(exp.id)} style={{background:"none",border:"none",color:"#ddd",cursor:"pointer",fontSize:14,padding:"3px 6px"}}>🗑️</button>
-                  </div>
-                </div>
-                {editing===exp.id&&(
+                {editing===exp.id && (
                   <div style={{background:"#f8f9fa",borderRadius:10,padding:"12px",marginTop:10,borderTop:"2px solid #1a5276"}}>
-                    <div style={{fontWeight:700,fontSize:13,marginBottom:10,color:"#1a5276"}}>✏️ Editar gasto</div>
+                    <div style={{fontWeight:700,fontSize:13,marginBottom:10,color:"#1a5276"}}>✏️ Editar</div>
                     <div style={{marginBottom:8}}><div style={S.label}>Comercio</div><input style={S.input} value={editForm.comercio} onChange={updEdit("comercio")}/></div>
                     <div style={{display:"flex",gap:8,marginBottom:8}}>
                       <div style={{flex:1}}><div style={S.label}>Neto</div><input style={S.input} type="number" value={editForm.monto_neto} onChange={e=>{const n=parseInt(e.target.value)||0;setEditForm(f=>({...f,monto_neto:e.target.value,iva:Math.round(n*0.19)||"",monto_total:Math.round(n*1.19)||""}));}}/></div>
@@ -1195,7 +1186,7 @@ Total: $${total.toLocaleString("es-CL")}
                     <div style={{marginBottom:8}}><div style={S.label}>Total *</div><input style={{...S.input,fontWeight:700}} type="number" value={editForm.monto_total} onChange={updEdit("monto_total")}/></div>
                     <div style={{display:"flex",gap:8,marginBottom:8}}>
                       <div style={{flex:1}}><div style={S.label}>Fecha</div><input style={S.input} type="date" value={editForm.fecha} onChange={updEdit("fecha")}/></div>
-                      <div style={{flex:1}}><div style={S.label}>Categoría</div><select style={S.input} value={editForm.categoria} onChange={updEdit("categoria")}>{["Bencina","Almuerzos","Gastos Oficina","Peajes","Estacionamientos","Supermercado","Restaurantes","Clientes","Merchandising","Eventos","Otro"].map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+                      <div style={{flex:1}}><div style={S.label}>Categoría</div><select style={S.input} value={editForm.categoria} onChange={updEdit("categoria")}>{CATS.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
                     </div>
                     <div style={{marginBottom:10}}><div style={S.label}>Nota</div><input style={S.input} value={editForm.nota} onChange={updEdit("nota")}/></div>
                     <div style={{display:"flex",gap:8}}>
@@ -1204,7 +1195,7 @@ Total: $${total.toLocaleString("es-CL")}
                     </div>
                   </div>
                 )}
-                {deleting===exp.id&&(
+                {deleting===exp.id && (
                   <div style={{background:"#fde8e8",borderRadius:8,padding:"10px",marginTop:8,display:"flex",gap:8,alignItems:"center"}}>
                     <span style={{fontSize:13,color:"#b00020",flex:1}}>¿Eliminar?</span>
                     <button onClick={async()=>{await supabase.from("expenses").delete().eq("id",exp.id);setDeleting(null);window.location.reload();}} style={{background:"#b00020",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>Eliminar</button>
@@ -1215,132 +1206,112 @@ Total: $${total.toLocaleString("es-CL")}
             );
           })}
           <div style={{height:40}}/>
-        </>
-      )}
-
-      {tab==="split"&&<>
-
-      {/* Invite */}
-      <div style={{background:"#f0f7ff",border:"1px solid #bee3f8",borderRadius:12,padding:"12px 14px",marginBottom:16}}>
-        <div style={{fontWeight:700,fontSize:13,color:"#1a5276",marginBottom:6}}>🔗 Link de invitación</div>
-        <div style={{fontSize:11,color:"#555",marginBottom:8,wordBreak:"break-all"}}>{inviteUrl}</div>
-        <div style={{display:"flex",gap:8}}>
-          <button onClick={()=>{navigator.clipboard.writeText(inviteUrl);alert("¡Copiado!");}} style={{background:"#1a5276",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>Copiar</button>
-          <button onClick={()=>window.open("https://wa.me/?text="+encodeURIComponent("Unite al grupo: "+inviteUrl),"_blank")} style={{background:"#25D366",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>WA</button>
         </div>
-      </div>
-
-      {/* Totals */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
-        {[{label:"Total",value:`$${total.toLocaleString("es-CL")}`,color:"#1a5276"},{label:"Por persona",value:`$${perPerson.toLocaleString("es-CL")}`,color:"#1a7a4a"},{label:"Participantes",value:String(members.length),color:"#7d3c98"}].map(item=>(
-          <div key={item.label} style={{background:item.color+"10",border:`1px solid ${item.color}25`,borderRadius:12,padding:"10px 8px",textAlign:"center"}}>
-            <div style={{fontSize:10,color:"#aaa",marginBottom:3}}>{item.label}</div>
-            <div style={{fontFamily:"'Georgia',serif",fontWeight:700,color:item.color,fontSize:14}}>{item.value}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* View toggle */}
-      <div style={{display:"flex",gap:8,marginBottom:16}}>
-        {[["detailed","📊 Detallado"],["simple","⚡ Simplificado"]].map(([v,label])=>(
-          <button key={v} onClick={()=>setView(v)} style={{flex:1,padding:"9px",borderRadius:10,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:view===v?"#1a5276":"#f0f0f0",color:view===v?"#fff":"#555",fontFamily:"inherit"}}>{label}</button>
-        ))}
-      </div>
-
-      {/* DETAILED VIEW */}
-      {view==="detailed"&&(
-        <>
-          <div style={S.sectionLabel}>Detalle por persona</div>
-          {members.map(m=>{
-            const p=paid[m.id]||0, o=owes[m.id]||0, b=balance[m.id]||0;
-            return (
-              <div key={m.id} style={{...S.card,borderLeft:`4px solid ${b>=0?"#1a7a4a":"#c0392b"}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                  <div style={{fontWeight:700,fontSize:15}}>{m.nombre||m.email}</div>
-                  <div style={{fontSize:12,background:b>=0?"#e8f5e9":"#fde8e8",color:b>=0?"#2e7d32":"#b00020",borderRadius:6,padding:"3px 10px",fontWeight:700}}>
-                    {b>0?`recibe $${b.toLocaleString("es-CL")}`:b<0?`debe $${Math.abs(b).toLocaleString("es-CL")}`:"al día"}
-                  </div>
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                  <div style={{background:"#f0f7ff",borderRadius:8,padding:"8px 10px"}}>
-                    <div style={{fontSize:11,color:"#aaa",marginBottom:2}}>💳 Pagó</div>
-                    <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:"#1a5276"}}>${p.toLocaleString("es-CL")}</div>
-                  </div>
-                  <div style={{background:"#f5f5f5",borderRadius:8,padding:"8px 10px"}}>
-                    <div style={{fontSize:11,color:"#aaa",marginBottom:2}}>📌 Le corresponde</div>
-                    <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:"#555"}}>${o.toLocaleString("es-CL")}</div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </>
       )}
 
-      {/* SIMPLE VIEW */}
-      {view==="simple"&&(
-        <>
-          {transactions.length===0?(
-            <div style={{...S.card,textAlign:"center",padding:"28px"}}>
-              <div style={{fontSize:44,marginBottom:8}}>✅</div>
-              <div style={{fontWeight:700,fontSize:16}}>¡Todos al día!</div>
-              <div style={{fontSize:13,color:"#888",marginTop:4}}>No hay deudas pendientes.</div>
+      {/* SPLIT TAB */}
+      {tab==="split" && (
+        <div>
+          {/* Invite */}
+          <div style={{background:"#f0f7ff",border:"1px solid #bee3f8",borderRadius:12,padding:"12px 14px",marginBottom:16}}>
+            <div style={{fontWeight:700,fontSize:13,color:"#1a5276",marginBottom:6}}>🔗 Link de invitación</div>
+            <div style={{fontSize:11,color:"#555",marginBottom:8,wordBreak:"break-all"}}>{inviteUrl}</div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>{navigator.clipboard.writeText(inviteUrl);alert("¡Copiado!");}} style={{background:"#1a5276",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>Copiar</button>
+              <button onClick={()=>window.open("https://wa.me/?text="+encodeURIComponent("Unite al grupo: "+inviteUrl),"_blank")} style={{background:"#25D366",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>WA</button>
             </div>
-          ):(
-            <>
-              <div style={S.sectionLabel}>Transferencias a realizar</div>
-              {transactions.map((t,i)=>(
-                <div key={i} style={{...S.card,borderLeft:"4px solid #c0392b",padding:"16px 14px"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:12}}>
-                    <div style={{flex:1}}>
-                      <div style={{fontWeight:700,fontSize:15,color:"#c0392b"}}>{t.from.nombre||t.from.email}</div>
-                      <div style={{fontSize:12,color:"#aaa",margin:"4px 0"}}>↓ transfiere a</div>
-                      <div style={{fontWeight:700,fontSize:15,color:"#1a7a4a"}}>{t.to.nombre||t.to.email}</div>
+          </div>
+
+          {/* Totals */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
+            {[{label:"Total",value:clp(total),color:"#1a5276"},{label:"Por persona",value:clp(perPerson),color:"#1a7a4a"},{label:"Participantes",value:String(members.length),color:"#7d3c98"}].map(item=>(
+              <div key={item.label} style={{background:item.color+"10",border:`1px solid ${item.color}25`,borderRadius:12,padding:"10px 8px",textAlign:"center"}}>
+                <div style={{fontSize:10,color:"#aaa",marginBottom:3}}>{item.label}</div>
+                <div style={{fontFamily:"'Georgia',serif",fontWeight:700,color:item.color,fontSize:14}}>{item.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* View toggle */}
+          <div style={{display:"flex",gap:8,marginBottom:16}}>
+            {[["detailed","📊 Detallado"],["simple","⚡ Simplificado"]].map(([v,label])=>(
+              <button key={v} onClick={()=>setView(v)} style={{flex:1,padding:"9px",borderRadius:10,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:view===v?"#1a5276":"#f0f0f0",color:view===v?"#fff":"#555",fontFamily:"inherit"}}>{label}</button>
+            ))}
+          </div>
+
+          {/* DETAILED */}
+          {view==="detailed" && (
+            <div>
+              <div style={S.sectionLabel}>Detalle por persona</div>
+              {members.map(m=>{
+                const p=paid[m.id]||0,o=owes[m.id]||0,b=balance[m.id]||0;
+                return (
+                  <div key={m.id} style={{...S.card,borderLeft:`4px solid ${b>=0?"#1a7a4a":"#c0392b"}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                      <div style={{fontWeight:700,fontSize:15}}>{m.nombre||m.email}</div>
+                      <div style={{fontSize:12,background:b>=0?"#e8f5e9":"#fde8e8",color:b>=0?"#2e7d32":"#b00020",borderRadius:6,padding:"3px 10px",fontWeight:700}}>
+                        {b>0?`recibe ${clp(b)}`:b<0?`debe ${clp(Math.abs(b))}`:"al día"}
+                      </div>
                     </div>
-                    <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:24,color:"#1a5276"}}>${t.amount.toLocaleString("es-CL")}</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div style={{background:"#f0f7ff",borderRadius:8,padding:"8px 10px"}}>
+                        <div style={{fontSize:11,color:"#aaa",marginBottom:2}}>💳 Pagó</div>
+                        <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:"#1a5276"}}>{clp(p)}</div>
+                      </div>
+                      <div style={{background:"#f5f5f5",borderRadius:8,padding:"8px 10px"}}>
+                        <div style={{fontSize:11,color:"#aaa",marginBottom:2}}>📌 Le corresponde</div>
+                        <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:"#555"}}>{clp(o)}</div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </>
-          )}
-          <div style={{...S.sectionLabel,marginTop:20}}>Balance</div>
-          {members.map(m=>{
-            const b=balance[m.id]||0;
-            return (
-              <div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #f0f0f0"}}>
-                <span style={{fontWeight:600,fontSize:14}}>{m.nombre||m.email}</span>
-                <span style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:15,color:b>0?"#1a7a4a":b<0?"#c0392b":"#888"}}>
-                  {b>0?`+$${b.toLocaleString("es-CL")}`:b<0?`-$${Math.abs(b).toLocaleString("es-CL")}`:"$0"}
-                </span>
-              </div>
-            );
-          })}
-        </>
-      )}
-      }
-
-      {/* Expenses section at bottom of split tab */}
-      {tab==="split"&&<>
-      <div style={{...S.sectionLabel,marginTop:20}}>Gastos del grupo</div>
-      {groupExpenses.length===0&&<div style={S.empty}><div>Sin gastos todavía</div></div>}
-      {[...groupExpenses].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(exp=>{
-        const parts=expParticipants[exp.id]||[];
-        const payer=members.find(m=>m.id===exp.user_id);
-        return (
-          <div key={exp.id} style={{...S.card,borderLeft:"4px solid #1a5276"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-              <div style={{flex:1}}>
-                <div style={S.cardTitle}>{exp.comercio||"Sin nombre"}</div>
-                <div style={{fontSize:12,color:"#888",marginTop:2}}>💳 <strong>{payer?.nombre||payer?.email||"?"}</strong></div>
-                {parts.length>0&&<div style={{fontSize:11,color:"#aaa",marginTop:2}}>👥 {parts.length} personas · ${Math.round((exp.monto_total||0)/Math.max(parts.length,1)).toLocaleString("es-CL")} c/u</div>}
-                <div style={S.meta}>{iso2d(exp.fecha)} · {exp.categoria}</div>
-              </div>
-              <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:"#1a5276",marginLeft:8}}>${(exp.monto_total||0).toLocaleString("es-CL")}</div>
+                );
+              })}
             </div>
-          </div>
-        );
-      })}
-      <div style={{height:40}}/>
+          )}
+
+          {/* SIMPLE */}
+          {view==="simple" && (
+            <div>
+              {tx.length===0 ? (
+                <div style={{...S.card,textAlign:"center",padding:"28px"}}>
+                  <div style={{fontSize:44,marginBottom:8}}>✅</div>
+                  <div style={{fontWeight:700,fontSize:16}}>¡Todos al día!</div>
+                  <div style={{fontSize:13,color:"#888",marginTop:4}}>No hay deudas pendientes.</div>
+                </div>
+              ) : (
+                <div>
+                  <div style={S.sectionLabel}>Transferencias a realizar</div>
+                  {tx.map((t,i)=>(
+                    <div key={i} style={{...S.card,borderLeft:"4px solid #c0392b",padding:"16px 14px"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:12}}>
+                        <div style={{flex:1}}>
+                          <div style={{fontWeight:700,fontSize:15,color:"#c0392b"}}>{t.from.nombre||t.from.email}</div>
+                          <div style={{fontSize:12,color:"#aaa",margin:"4px 0"}}>↓ transfiere a</div>
+                          <div style={{fontWeight:700,fontSize:15,color:"#1a7a4a"}}>{t.to.nombre||t.to.email}</div>
+                        </div>
+                        <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:24,color:"#1a5276"}}>{clp(t.amount)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{...S.sectionLabel,marginTop:20}}>Balance</div>
+              {members.map(m=>{
+                const b=balance[m.id]||0;
+                return (
+                  <div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #f0f0f0"}}>
+                    <span style={{fontWeight:600,fontSize:14}}>{m.nombre||m.email}</span>
+                    <span style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:15,color:b>0?"#1a7a4a":b<0?"#c0392b":"#888"}}>
+                      {b>0?`+${clp(b)}`:b<0?`-${clp(Math.abs(b))}`:"$0"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div style={{height:40}}/>
+        </div>
+      )}
     </div>
   );
 }
