@@ -468,7 +468,7 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
         <div style={S.label}>¿A qué entidad corresponde? *</div>
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {entities.map(e=>(
-            <button key={e.id} onClick={()=>setForm(f=>({...f,entity_id:e.id}))}
+            <button key={e.id} onClick={()=>{setForm(f=>({...f,entity_id:e.id}));loadGroupMembers(e.id);}}
               style={{display:"flex",alignItems:"center",gap:12,padding:"13px 16px",borderRadius:12,border:`2px solid ${form.entity_id===e.id?e.color:"#e0e0e0"}`,background:form.entity_id===e.id?e.color+"15":"#fff",cursor:"pointer",fontFamily:"inherit"}}>
               <EntityIcon entity={e} size={28}/>
               <div style={{flex:1,textAlign:"left"}}>
