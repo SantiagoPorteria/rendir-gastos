@@ -340,11 +340,19 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
   // Load group members when entity changes
   const loadGroupMembers = async (entityId) => {
     const ent = entities.find(e=>e.id===entityId);
-    if(ent?.type!=="group"){setGroupMembers([]);setParticipants([]);setPayer(userId);return;}
-    const {data:members}=await supabase.from("entity_members").select("user_id").eq("entity_id",entityId);
+    console.log("loadGroupMembers called:", entityId, "type:", ent?.type);
+    if(ent?.type!=="group"){
+      console.log("Not a group, clearing");
+      setGroupMembers([]);setParticipants([]);setPayer(userId);return;
+    }
+    const {data:members, error:mErr}=await supabase.from("entity_members").select("user_id").eq("entity_id",entityId);
+    console.log("members from DB:", members, mErr);
     const memberIds=[...new Set([...(members||[]).map(m=>m.user_id), ent.owner_id, userId])];
-    const {data:profiles}=await supabase.from("profiles").select("id,nombre,email").in("id",memberIds);
+    console.log("memberIds:", memberIds);
+    const {data:profiles, error:pErr}=await supabase.from("profiles").select("id,nombre,email").in("id",memberIds);
+    console.log("profiles:", profiles, pErr);
     const unique=(profiles||[]).filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i);
+    console.log("unique members:", unique);
     setGroupMembers(unique);
     setParticipants(unique.map(m=>m.id));
     setPayer(userId);
