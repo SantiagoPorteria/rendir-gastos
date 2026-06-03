@@ -852,7 +852,7 @@ function SettingsScreen({profile,entities,categories,nav,dispatch}) {
 }
 
 // ─── INVITE SCREEN ───────────────────────────────────────────────────────────
-function InviteScreen({nav}) {
+function InviteScreen({nav, token}) {
   const [joining,setJoining]=useState(false);
   const [msg,setMsg]=useState(null);
   const [entity,setEntity]=useState(null);
@@ -865,13 +865,12 @@ function InviteScreen({nav}) {
   const tokenRef = useRef(null);
 
   useEffect(()=>{
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get("invite");
-    if(token){
-      tokenRef.current = token;
-      processInvite(token);
+    const t = token || new URLSearchParams(window.location.search).get("invite");
+    if(t){
+      tokenRef.current = t;
+      processInvite(t);
     }
-  },[]);
+  },[token]);
 
   const processInvite = async (token) => {
     setJoining(true);
@@ -1165,10 +1164,10 @@ export default function App() {
   const nav = useCallback((s,params={})=>{setScreen(s);setParams(params||{});});
 
   // Check for invite token in URL on load
+  const [inviteToken] = useState(()=>new URLSearchParams(window.location.search).get("invite"));
   useEffect(()=>{
-    const params = new URLSearchParams(window.location.search);
-    if(params.get("invite")) setScreen("invite");
-  },[]);
+    if(inviteToken) setScreen("invite");
+  },[inviteToken]);
 
   // Auth listener
   useEffect(()=>{
@@ -1244,7 +1243,7 @@ export default function App() {
       {screen==="admin"     && <AdminScreen   {...commonProps}/>}
       {screen==="settings"  && <SettingsScreen {...commonProps}/>}
       {screen==="groupSplit" && <GroupSplitScreen entity={entities.find(e=>e.id===screenParams?.entityId)} expenses={expenses} nav={nav}/>}
-      {screen==="invite"     && <InviteScreen nav={nav}/>}
+      {screen==="invite"     && <InviteScreen nav={nav} token={inviteToken}/>}
     </div>
   );
 }
