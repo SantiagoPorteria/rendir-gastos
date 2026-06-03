@@ -567,13 +567,45 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
 }
 
 // ─── REPORT ───────────────────────────────────────────────────────────────────
-function ReportScreen({entities,expenses,categories,nav,initParams,onDelete}) {
+function ReportScreen({entities,expenses,categories,nav,initParams,onDelete,onUpdate}) {
   const [filterEntity,setFilterEntity]=useState(initParams?.entityId||"all");
   const [filterMonth,setFilterMonth]=useState("all");
   const [deleting,setDeleting]=useState(null);
+  const [editing,setEditing]=useState(null);
+  const [editForm,setEditForm]=useState({});
+  const [saving,setSaving]=useState(false);
   const [exporting,setExporting]=useState(null);
 
   const allMonths=[...new Set(expenses.map(e=>e.fecha?.slice(0,7)).filter(Boolean))].sort().reverse();
+
+  const startEdit=(exp)=>{
+    setEditing(exp.id);
+    setEditForm({
+      comercio:exp.comercio||"",rut_comercio:exp.rut_comercio||"",
+      monto_total:exp.monto_total||"",monto_neto:exp.monto_neto||"",iva:exp.iva||"",
+      fecha:exp.fecha||"",tipo_documento:exp.tipo_documento||"boleta",
+      numero_documento:exp.numero_documento||"",categoria:exp.categoria||"Otro",
+      descripcion:exp.descripcion||"",nota:exp.nota||"",entity_id:exp.entity_id||"",
+    });
+  };
+
+  const saveEdit=async(expId)=>{
+    setSaving(true);
+    const {data,error}=await supabase.from("expenses").update({
+      comercio:editForm.comercio,rut_comercio:editForm.rut_comercio,
+      monto_total:parseInt(String(editForm.monto_total).replace(/\D/g,""))||0,
+      monto_neto:parseInt(String(editForm.monto_neto).replace(/\D/g,""))||0,
+      iva:parseInt(String(editForm.iva).replace(/\D/g,""))||0,
+      fecha:editForm.fecha,tipo_documento:editForm.tipo_documento,
+      numero_documento:editForm.numero_documento,categoria:editForm.categoria,
+      descripcion:editForm.descripcion,nota:editForm.nota,
+    }).eq("id",expId).select().single();
+    if(!error&&data) onUpdate(data);
+    setSaving(false);
+    setEditing(null);
+  };
+
+  const updEdit=k=>e=>setEditForm(f=>({...f,[k]:e.target.value}));
   const filtered=expenses.filter(e=>{
     const eOk=filterEntity==="all"||e.entity_id===filterEntity;
     const mOk=filterMonth==="all"||e.fecha?.startsWith(filterMonth);
@@ -674,13 +706,42 @@ function ReportScreen({entities,expenses,categories,nav,initParams,onDelete}) {
                 {exp.nota&&<div style={{...S.desc,color:"#bbb"}}>📝 {exp.nota}</div>}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
                   <div style={S.meta}>{iso2d(exp.fecha)}{exp.iva>0?` · IVA ${clp(exp.iva)}`:""}</div>
-                  <button onClick={()=>setDeleting(exp.id)} style={{background:"none",border:"none",color:"#ddd",cursor:"pointer",fontSize:14}}>🗑️</button>
+                  <div style={{display:"flex",gap:4}}>
+                    <button onClick={()=>{setEditing(editing===exp.id?null:exp.id);startEdit(exp);}} style={{background:"none",border:"none",color:"#aaa",cursor:"pointer",fontSize:14,padding:"2px 4px"}}>✏️</button>
+                    <button onClick={()=>setDeleting(exp.id)} style={{background:"none",border:"none",color:"#ddd",cursor:"pointer",fontSize:14,padding:"2px 4px"}}>🗑️</button>
+                  </div>
                 </div>
               </div>
             </div>
+            {/* EDIT FORM */}
+            {editing===exp.id&&(
+              <div style={{background:"#f8f9fa",borderRadius:8,padding:"12px",marginTop:8,borderTop:"1px solid #eee"}}>
+                <div style={{fontWeight:700,fontSize:13,marginBottom:10,color:"#1a5276"}}>✏️ Editar gasto</div>
+                <div style={{display:"flex",gap:8,marginBottom:8}}>
+                  <div style={{flex:1}}><div style={S.label}>Comercio</div><input style={S.input} value={editForm.comercio} onChange={updEdit("comercio")}/></div>
+                  <div style={{flex:1}}><div style={S.label}>RUT</div><input style={S.input} value={editForm.rut_comercio} onChange={updEdit("rut_comercio")}/></div>
+                </div>
+                <div style={{display:"flex",gap:8,marginBottom:8}}>
+                  <div style={{flex:1}}><div style={S.label}>Neto</div><input style={S.input} type="number" value={editForm.monto_neto} onChange={e=>{const n=parseInt(e.target.value)||0;setEditForm(f=>({...f,monto_neto:e.target.value,iva:Math.round(n*0.19)||"",monto_total:Math.round(n*1.19)||""}));}}/></div>
+                  <div style={{flex:1}}><div style={S.label}>IVA</div><input style={S.input} type="number" value={editForm.iva} onChange={updEdit("iva")}/></div>
+                </div>
+                <div style={{marginBottom:8}}><div style={S.label}>Total *</div><input style={{...S.input,fontWeight:700}} type="number" value={editForm.monto_total} onChange={updEdit("monto_total")}/></div>
+                <div style={{display:"flex",gap:8,marginBottom:8}}>
+                  <div style={{flex:1}}><div style={S.label}>Fecha</div><input style={S.input} type="date" value={editForm.fecha} onChange={updEdit("fecha")}/></div>
+                  <div style={{flex:1}}><div style={S.label}>Categoría</div><select style={S.input} value={editForm.categoria} onChange={updEdit("categoria")}>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+                </div>
+                <div style={{marginBottom:8}}><div style={S.label}>Descripción</div><input style={S.input} value={editForm.descripcion} onChange={updEdit("descripcion")}/></div>
+                <div style={{marginBottom:10}}><div style={S.label}>Nota</div><input style={S.input} value={editForm.nota} onChange={updEdit("nota")}/></div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>saveEdit(exp.id)} disabled={saving} style={{flex:1,background:"#1a5276",color:"#fff",border:"none",borderRadius:8,padding:"10px",fontWeight:700,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>{saving?"Guardando...":"💾 Guardar"}</button>
+                  <button onClick={()=>setEditing(null)} style={{flex:1,background:"#eee",border:"none",borderRadius:8,padding:"10px",fontWeight:700,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>Cancelar</button>
+                </div>
+              </div>
+            )}
+            {/* DELETE */}
             {deleting===exp.id&&(
               <div style={{background:"#fde8e8",borderRadius:8,padding:"10px",marginTop:8,display:"flex",gap:8,alignItems:"center"}}>
-                <span style={{fontSize:13,color:"#b00020",flex:1}}>¿Eliminar?</span>
+                <span style={{fontSize:13,color:"#b00020",flex:1}}>¿Eliminar este gasto?</span>
                 <button onClick={async()=>{await supabase.from("expenses").delete().eq("id",exp.id);onDelete(exp.id);setDeleting(null);}}
                   style={{background:"#b00020",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>Eliminar</button>
                 <button onClick={()=>setDeleting(null)} style={{background:"#eee",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>Cancelar</button>
@@ -1294,7 +1355,7 @@ export default function App() {
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0;}input:focus,select:focus,textarea:focus{outline:2px solid #1a5276;outline-offset:1px;}@keyframes spin{to{transform:rotate(360deg);}}button:active{opacity:.85;}`}</style>
       {screen==="home"      && <HomeScreen    {...commonProps} onSignOut={signOut}/>}
       {screen==="capture"   && <CaptureScreen {...commonProps} onSaved={exp=>{setExpenses(e=>[exp,...e]);}}/>}
-      {screen==="report"    && <ReportScreen  {...commonProps} initParams={screenParams} onDelete={id=>setExpenses(e=>e.filter(x=>x.id!==id))}/>}
+      {screen==="report"    && <ReportScreen  {...commonProps} initParams={screenParams} onDelete={id=>setExpenses(e=>e.filter(x=>x.id!==id))} onUpdate={updated=>setExpenses(e=>e.map(x=>x.id===updated.id?updated:x))}/>}
       {screen==="newEntity" && <NewEntityScreen {...commonProps} onCreated={e=>setEntities(prev=>[...prev,e])}/>}
       {screen==="admin"     && <AdminScreen   {...commonProps}/>}
       {screen==="settings"  && <SettingsScreen {...commonProps}/>}
