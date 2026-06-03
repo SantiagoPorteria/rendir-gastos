@@ -1164,7 +1164,7 @@ export default function App() {
   const nav = useCallback((s,params={})=>{setScreen(s);setParams(params||{});});
 
   // Check for invite token in URL on load
-  const [inviteToken] = useState(()=>new URLSearchParams(window.location.search).get("invite"));
+  const [inviteToken] = useState(()=>{ const p=new URLSearchParams(window.location.search); return p.get("invite") || new URLSearchParams(window.location.href.split("?")[1]||"").get("invite"); });
 
   // Auth listener
   useEffect(()=>{
@@ -1215,6 +1215,14 @@ export default function App() {
   },[]);
 
   const signOut = async () => { await supabase.auth.signOut(); setUser(null); setProfile(null); setEntities([]); setExpenses([]); };
+
+  // Show invite screen before auth if token present
+  if(inviteToken && (loading || !user)) return (
+    <div style={{fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",background:"#f7f5f0",minHeight:"100vh"}}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0;}input:focus{outline:2px solid #1a5276;outline-offset:1px;}@keyframes spin{to{transform:rotate(360deg);}}`}</style>
+      <InviteScreen nav={nav} token={inviteToken}/>
+    </div>
+  );
 
   if(loading) return (
     <div style={{fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",background:"#f7f5f0",minHeight:"100vh"}}>
