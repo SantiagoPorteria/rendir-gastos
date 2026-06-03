@@ -243,21 +243,6 @@ function NewEntityScreen({profile,nav,onCreated}) {
   const [loading,setLoading]=useState(false);
   const upd=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
 
-  // Load group members when entity changes
-  const loadGroupMembers = async (entityId) => {
-    const ent = entities.find(e=>e.id===entityId);
-    if(ent?.type!=="group"){setGroupMembers([]);setParticipants([]);setPayer(userId);return;}
-    // Load members from entity_members
-    const {data:members}=await supabase.from("entity_members").select("user_id").eq("entity_id",entityId);
-    const memberIds=[...new Set([...(members||[]).map(m=>m.user_id), ent.owner_id, userId])];
-    // Load profiles for all member ids
-    const {data:profiles}=await supabase.from("profiles").select("id,nombre,email").in("id",memberIds);
-    const unique=(profiles||[]).filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i);
-    setGroupMembers(unique);
-    setParticipants(unique.map(m=>m.id)); // select all by default
-    setPayer(userId); // current user paid by default
-  };
-
   const save = async () => {
     if(!form.label.trim()){setErr("Ingresá un nombre");return;}
     setLoading(true);
@@ -351,6 +336,19 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
   const blank={entity_id:"",comercio:"",rut_comercio:"",monto_total:"",monto_neto:"",iva:"",fecha:todayFn(),tipo_documento:"boleta",numero_documento:"",categoria:"Otro",descripcion:"",nota:""};
   const [form,setForm]=useState(blank);
   const upd=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
+
+  // Load group members when entity changes
+  const loadGroupMembers = async (entityId) => {
+    const ent = entities.find(e=>e.id===entityId);
+    if(ent?.type!=="group"){setGroupMembers([]);setParticipants([]);setPayer(userId);return;}
+    const {data:members}=await supabase.from("entity_members").select("user_id").eq("entity_id",entityId);
+    const memberIds=[...new Set([...(members||[]).map(m=>m.user_id), ent.owner_id, userId])];
+    const {data:profiles}=await supabase.from("profiles").select("id,nombre,email").in("id",memberIds);
+    const unique=(profiles||[]).filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i);
+    setGroupMembers(unique);
+    setParticipants(unique.map(m=>m.id));
+    setPayer(userId);
+  };
 
   const handleFile=file=>{
     if(!file)return;
