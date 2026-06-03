@@ -1060,7 +1060,7 @@ function GroupSplitScreen({entity,expenses,nav}) {
 
   const {paid,owes,balance}=calcSplit();
   const total=groupExpenses.reduce((s,x)=>s+(x.monto_total||0),0);
-  const inviteUrl=`${window.location.origin}?invite=${entity.invite_token}`;
+  const inviteUrl=`https://rendir-gastos-sli.vercel.app?invite=${entity.invite_token}`;
 
   return (
     <div style={S.page}>
