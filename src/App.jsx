@@ -317,8 +317,6 @@ function NewEntityScreen({profile,nav,onCreated}) {
 
       <button style={S.btn} onClick={save} disabled={loading}>{loading?"Guardando…":"Crear entidad"}</button>
       <div style={{height:40}}/>
-      </>
-      }
     </div>
   );
 }
@@ -1319,8 +1317,6 @@ Total: $${total.toLocaleString("es-CL")}
           })}
         </>
       )}
-
-      </>
       }
 
       {/* Expenses section at bottom of split tab */}
