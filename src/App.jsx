@@ -177,7 +177,7 @@ function HomeScreen({profile,entities,expenses,nav,onSignOut}) {
           const cnt=expenses.filter(x=>x.entity_id===e.id).length;
           const typeTag = e.type==="group"?"👥":e.type==="global"?"🌐":"";
           return (
-            <div key={e.id} onClick={()=>e.type==="group"?nav("groupSplit",{entityId:e.id}):nav("report",{entityId:e.id})}
+            <div key={e.id} onClick={()=>e.type==="group"?nav("groupSplit",{entityId:e.id}):nav("entityExpenses",{entityId:e.id})}
               style={{background:e.color+"12",border:`1.5px solid ${e.color}33`,borderRadius:14,padding:"14px 12px",cursor:"pointer"}}>
               <div style={{marginBottom:6,display:"flex",alignItems:"center",justifyContent:"flex-start"}}><EntityIcon entity={e} size={32}/></div>
               <div style={{fontSize:11,fontWeight:700,color:e.color,lineHeight:1.2,marginBottom:4}}>
@@ -1260,6 +1260,162 @@ Total: $${total.toLocaleString("es-CL")}
 }
 
 
+// ─── ENTITY EXPENSES SCREEN ──────────────────────────────────────────────────
+function EntityExpensesScreen({entity,expenses,categories,entities,nav,onDelete,onUpdate}) {
+  const [deleting,setDeleting]=useState(null);
+  const [editing,setEditing]=useState(null);
+  const [editForm,setEditForm]=useState({});
+  const [saving,setSaving]=useState(false);
+  const [filterMonth,setFilterMonth]=useState("all");
+
+  const entityExpenses=expenses.filter(e=>e.entity_id===entity?.id);
+  const allMonths=[...new Set(entityExpenses.map(e=>e.fecha?.slice(0,7)).filter(Boolean))].sort().reverse();
+  const filtered=filterMonth==="all"?entityExpenses:entityExpenses.filter(e=>e.fecha?.startsWith(filterMonth));
+  const total=filtered.reduce((s,x)=>s+(x.monto_total||0),0);
+
+  const startEdit=(exp)=>{
+    setEditing(exp.id);
+    setEditForm({
+      comercio:exp.comercio||"",rut_comercio:exp.rut_comercio||"",
+      monto_total:exp.monto_total||"",monto_neto:exp.monto_neto||"",iva:exp.iva||"",
+      fecha:exp.fecha||"",tipo_documento:exp.tipo_documento||"boleta",
+      numero_documento:exp.numero_documento||"",categoria:exp.categoria||"Otro",
+      descripcion:exp.descripcion||"",nota:exp.nota||"",
+    });
+  };
+
+  const saveEdit=async(expId)=>{
+    setSaving(true);
+    const {data,error}=await supabase.from("expenses").update({
+      comercio:editForm.comercio,rut_comercio:editForm.rut_comercio,
+      monto_total:parseInt(String(editForm.monto_total).replace(/[^0-9]/g,""))||0,
+      monto_neto:parseInt(String(editForm.monto_neto).replace(/[^0-9]/g,""))||0,
+      iva:parseInt(String(editForm.iva).replace(/[^0-9]/g,""))||0,
+      fecha:editForm.fecha,tipo_documento:editForm.tipo_documento,
+      numero_documento:editForm.numero_documento,categoria:editForm.categoria,
+      descripcion:editForm.descripcion,nota:editForm.nota,
+    }).eq("id",expId).select().single();
+    if(!error&&data) onUpdate(data);
+    setSaving(false);
+    setEditing(null);
+  };
+
+  const updEdit=k=>e=>setEditForm(f=>({...f,[k]:e.target.value}));
+
+  if(!entity) return null;
+
+  return (
+    <div style={S.page}>
+      <TopBar title={entity.label} onBack={()=>nav("home")} right={
+        <button onClick={()=>nav("capture")} style={{background:"#1a5276",color:"#fff",border:"none",borderRadius:9,padding:"7px 12px",cursor:"pointer",fontWeight:700,fontSize:13,fontFamily:"inherit"}}>+ Gasto</button>
+      }/>
+
+      {/* Entity icon and total */}
+      <div style={{display:"flex",alignItems:"center",gap:12,padding:"4px 0 16px",borderBottom:"1px solid #eee",marginBottom:16}}>
+        <EntityIcon entity={entity} size={40}/>
+        <div>
+          <div style={{fontSize:12,color:"#aaa"}}>Total gastos</div>
+          <div style={{fontFamily:"'Georgia',serif",fontSize:22,fontWeight:700,color:entity.color}}>{clp(total)}</div>
+        </div>
+        <div style={{marginLeft:"auto",textAlign:"right"}}>
+          <div style={{fontSize:12,color:"#aaa"}}>{filtered.length} gasto{filtered.length!==1?"s":""}</div>
+        </div>
+      </div>
+
+      {/* Month filter */}
+      {allMonths.length>1&&(
+        <div style={{marginBottom:14}}>
+          <div style={S.label}>Período</div>
+          <select style={S.input} value={filterMonth} onChange={e=>setFilterMonth(e.target.value)}>
+            <option value="all">Todos los meses</option>
+            {allMonths.map(m=><option key={m} value={m}>{ym2label(m)}</option>)}
+          </select>
+        </div>
+      )}
+
+      {filtered.length===0&&(
+        <div style={S.empty}>
+          <div style={{fontSize:48}}>📋</div>
+          <div>Sin gastos en esta entidad</div>
+          <button onClick={()=>nav("capture")} style={{...S.btn,marginTop:12,width:"auto",padding:"10px 20px"}}>+ Cargar gasto</button>
+        </div>
+      )}
+
+      {[...filtered].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(exp=>(
+        <div key={exp.id} style={{...S.card,borderLeft:`4px solid ${entity.color}`}}>
+          <div style={{display:"flex",gap:10}}>
+            {exp.image_url&&<img src={exp.image_url} alt="" style={{width:56,height:56,objectFit:"cover",borderRadius:8,flexShrink:0}}/>}
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div style={S.cardTitle}>{exp.comercio||"Sin nombre"}</div>
+                <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:entity.color,marginLeft:8,flexShrink:0}}>{clp(exp.monto_total)}</div>
+              </div>
+              {exp.rut_comercio&&<div style={{fontSize:11,color:"#aaa"}}>RUT: {exp.rut_comercio}</div>}
+              <div style={{display:"flex",gap:5,flexWrap:"wrap",margin:"4px 0"}}>
+                <Badge color="#666">{exp.categoria}</Badge>
+                {exp.tipo_documento&&<Badge color="#999">{exp.tipo_documento}{exp.numero_documento?` N°${exp.numero_documento}`:""}</Badge>}
+              </div>
+              {exp.descripcion&&<div style={S.desc}>{exp.descripcion}</div>}
+              {exp.nota&&<div style={{...S.desc,color:"#bbb"}}>📝 {exp.nota}</div>}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
+                <div style={S.meta}>{iso2d(exp.fecha)}{exp.iva>0?` · IVA ${clp(exp.iva)}`:""}</div>
+                <div style={{display:"flex",gap:4}}>
+                  <button onClick={()=>{editing===exp.id?setEditing(null):startEdit(exp);}} 
+                    style={{background:editing===exp.id?"#e8f0fe":"none",border:"none",color:"#1a5276",cursor:"pointer",fontSize:14,padding:"3px 6px",borderRadius:6}}>✏️</button>
+                  <button onClick={()=>setDeleting(exp.id)} 
+                    style={{background:"none",border:"none",color:"#ddd",cursor:"pointer",fontSize:14,padding:"3px 6px"}}>🗑️</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* EDIT FORM */}
+          {editing===exp.id&&(
+            <div style={{background:"#f8f9fa",borderRadius:10,padding:"14px",marginTop:10,borderTop:"2px solid #1a5276"}}>
+              <div style={{fontWeight:700,fontSize:13,marginBottom:12,color:"#1a5276"}}>✏️ Editar gasto</div>
+              <div style={{display:"flex",gap:8,marginBottom:10}}>
+                <div style={{flex:2}}><div style={S.label}>Comercio</div><input style={S.input} value={editForm.comercio} onChange={updEdit("comercio")} placeholder="Comercio..."/></div>
+                <div style={{flex:1}}><div style={S.label}>Tipo doc</div><select style={S.input} value={editForm.tipo_documento} onChange={updEdit("tipo_documento")}>{["boleta","factura","ticket","recibo","otro"].map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+              </div>
+              <div style={{marginBottom:10}}><div style={S.label}>RUT comercio</div><input style={S.input} value={editForm.rut_comercio} onChange={updEdit("rut_comercio")} placeholder="76.123.456-7"/></div>
+              <div style={{display:"flex",gap:8,marginBottom:10}}>
+                <div style={{flex:1}}><div style={S.label}>Neto</div><input style={S.input} type="number" value={editForm.monto_neto} onChange={e=>{const n=parseInt(e.target.value)||0;setEditForm(f=>({...f,monto_neto:e.target.value,iva:Math.round(n*0.19)||"",monto_total:Math.round(n*1.19)||""}));}}/></div>
+                <div style={{flex:1}}><div style={S.label}>IVA</div><input style={S.input} type="number" value={editForm.iva} onChange={e=>{const iva=parseInt(e.target.value)||0;const neto=parseInt(String(editForm.monto_neto))||0;setEditForm(f=>({...f,iva:e.target.value,monto_total:neto+iva||""}));}}/></div>
+              </div>
+              <div style={{marginBottom:10}}><div style={S.label}>Monto total *</div><input style={{...S.input,fontWeight:700,fontSize:16}} type="number" value={editForm.monto_total} onChange={updEdit("monto_total")}/></div>
+              <div style={{display:"flex",gap:8,marginBottom:10}}>
+                <div style={{flex:1}}><div style={S.label}>Fecha</div><input style={S.input} type="date" value={editForm.fecha} onChange={updEdit("fecha")}/></div>
+                <div style={{flex:1}}><div style={S.label}>Categoría</div><select style={S.input} value={editForm.categoria} onChange={updEdit("categoria")}>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+              </div>
+              <div style={{marginBottom:10}}><div style={S.label}>Descripción</div><input style={S.input} value={editForm.descripcion} onChange={updEdit("descripcion")} placeholder="Breve descripción..."/></div>
+              <div style={{marginBottom:12}}><div style={S.label}>Nota</div><textarea style={{...S.input,height:56,resize:"none"}} value={editForm.nota} onChange={updEdit("nota")} placeholder="Nota para el contador..."/></div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>saveEdit(exp.id)} disabled={saving} style={{flex:1,background:"#1a5276",color:"#fff",border:"none",borderRadius:10,padding:"12px",fontWeight:700,cursor:"pointer",fontSize:14,fontFamily:"inherit",opacity:saving?0.6:1}}>
+                  {saving?"Guardando...":"💾 Guardar cambios"}
+                </button>
+                <button onClick={()=>setEditing(null)} style={{flex:1,background:"#f0f0f0",border:"none",borderRadius:10,padding:"12px",fontWeight:700,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* DELETE CONFIRM */}
+          {deleting===exp.id&&(
+            <div style={{background:"#fde8e8",borderRadius:8,padding:"12px",marginTop:8,display:"flex",gap:8,alignItems:"center"}}>
+              <span style={{fontSize:13,color:"#b00020",flex:1}}>¿Eliminar este gasto?</span>
+              <button onClick={async()=>{await supabase.from("expenses").delete().eq("id",exp.id);onDelete(exp.id);setDeleting(null);}}
+                style={{background:"#b00020",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>Eliminar</button>
+              <button onClick={()=>setDeleting(null)} style={{background:"#eee",border:"none",borderRadius:6,padding:"6px 12px",cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>Cancelar</button>
+            </div>
+          )}
+        </div>
+      ))}
+      <div style={{height:40}}/>
+    </div>
+  );
+}
+
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [user,setUser]           = useState(null);
@@ -1359,7 +1515,8 @@ export default function App() {
       {screen==="newEntity" && <NewEntityScreen {...commonProps} onCreated={e=>setEntities(prev=>[...prev,e])}/>}
       {screen==="admin"     && <AdminScreen   {...commonProps}/>}
       {screen==="settings"  && <SettingsScreen {...commonProps}/>}
-      {screen==="groupSplit" && <GroupSplitScreen entity={entities.find(e=>e.id===screenParams?.entityId)} expenses={expenses} nav={nav}/>}
+      {screen==="groupSplit"      && <GroupSplitScreen entity={entities.find(e=>e.id===screenParams?.entityId)} expenses={expenses} nav={nav}/>}
+      {screen==="entityExpenses"  && <EntityExpensesScreen entity={entities.find(e=>e.id===screenParams?.entityId)} expenses={expenses} categories={categories} entities={entities} nav={nav} onDelete={id=>setExpenses(e=>e.filter(x=>x.id!==id))} onUpdate={updated=>setExpenses(e=>e.map(x=>x.id===updated.id?updated:x))}/>}
       {screen==="invite"     && <InviteScreen nav={nav} token={inviteToken}/>}
     </div>
   );
