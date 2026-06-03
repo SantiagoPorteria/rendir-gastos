@@ -340,19 +340,13 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
   // Load group members when entity changes
   const loadGroupMembers = async (entityId) => {
     const ent = entities.find(e=>e.id===entityId);
-    console.log("loadGroupMembers called:", entityId, "type:", ent?.type);
     if(ent?.type!=="group"){
-      console.log("Not a group, clearing");
       setGroupMembers([]);setParticipants([]);setPayer(userId);return;
     }
     const {data:members, error:mErr}=await supabase.from("entity_members").select("user_id").eq("entity_id",entityId);
-    console.log("members from DB:", members, mErr);
     const memberIds=[...new Set([...(members||[]).map(m=>m.user_id), ent.owner_id, userId])];
-    console.log("memberIds:", memberIds);
     const {data:profiles, error:pErr}=await supabase.from("profiles").select("id,nombre,email").in("id",memberIds);
-    console.log("profiles:", profiles, pErr);
     const unique=(profiles||[]).filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i);
-    console.log("unique members:", unique);
     setGroupMembers(unique);
     setParticipants(unique.map(m=>m.id));
     setPayer(userId);
@@ -991,19 +985,20 @@ function GroupSplitScreen({entity,expenses,nav}) {
   const [members,setMembers]=useState([]);
   const [expParticipants,setExpParticipants]=useState({});
   const [loading,setLoading]=useState(true);
+  const [view,setView]=useState("detailed");
 
   const groupExpenses = expenses.filter(e=>e.entity_id===entity?.id);
 
   useEffect(()=>{
     if(!entity)return;
     (async()=>{
-      // Load members
-      const {data:mems}=await supabase.from("entity_members").select("user_id, profiles(id,nombre,email)").eq("entity_id",entity.id);
-      const {data:owner}=await supabase.from("profiles").select("id,nombre,email").eq("id",entity.owner_id).single();
-      const allMembers=[...(mems||[]).map(m=>m.profiles),(owner?[owner]:[])].filter(Boolean);
-      const unique=allMembers.filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i);
+      const memberIds_set=new Set([entity.owner_id]);
+      const {data:mems}=await supabase.from("entity_members").select("user_id").eq("entity_id",entity.id);
+      (mems||[]).forEach(m=>memberIds_set.add(m.user_id));
+      const memberIds=[...memberIds_set];
+      const {data:profiles}=await supabase.from("profiles").select("id,nombre,email").in("id",memberIds);
+      const unique=(profiles||[]).filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i);
       setMembers(unique);
-      // Load participants per expense
       const expIds=groupExpenses.map(e=>e.id);
       if(expIds.length>0){
         const {data:parts}=await supabase.from("expense_participants").select("*").in("expense_id",expIds);
@@ -1015,12 +1010,9 @@ function GroupSplitScreen({entity,expenses,nav}) {
     })();
   },[entity?.id]);
 
-  // Calculate who paid and who owes
-  const calcSplit = () => {
-    const paid = {}; // user_id -> total paid
-    const owes = {}; // user_id -> total owes
+  const calcSplit=()=>{
+    const paid={}, owes={};
     members.forEach(m=>{paid[m.id]=0;owes[m.id]=0;});
-
     groupExpenses.forEach(exp=>{
       const payer=exp.user_id;
       const parts=expParticipants[exp.id]||members.map(m=>m.id);
@@ -1028,106 +1020,162 @@ function GroupSplitScreen({entity,expenses,nav}) {
       if(paid[payer]!==undefined) paid[payer]+=(exp.monto_total||0);
       parts.forEach(uid=>{if(owes[uid]!==undefined)owes[uid]+=share;});
     });
-
-    // Net balance (positive = gets money back, negative = owes money)
     const balance={};
     members.forEach(m=>{balance[m.id]=(paid[m.id]||0)-(owes[m.id]||0);});
     return {paid,owes,balance};
   };
 
-  const shareWhatsApp = () => {
+  const calcSimplified=(balance)=>{
+    const creds=members.filter(m=>balance[m.id]>0).map(m=>({...m,amt:balance[m.id]})).sort((a,b)=>b.amt-a.amt);
+    const debts=members.filter(m=>balance[m.id]<0).map(m=>({...m,amt:-balance[m.id]})).sort((a,b)=>b.amt-a.amt);
+    const transactions=[];
+    let ci=0,di=0;
+    const c=creds.map(x=>({...x})), d=debts.map(x=>({...x}));
+    while(ci<c.length&&di<d.length){
+      const amount=Math.min(c[ci].amt,d[di].amt);
+      if(amount>0) transactions.push({from:d[di],to:c[ci],amount});
+      c[ci].amt-=amount; d[di].amt-=amount;
+      if(c[ci].amt<=0)ci++; if(d[di].amt<=0)di++;
+    }
+    return transactions;
+  };
+
+  const shareWA=()=>{
     if(!entity)return;
     const {paid,owes,balance}=calcSplit();
+    const transactions=calcSimplified(balance);
     const total=groupExpenses.reduce((s,x)=>s+(x.monto_total||0),0);
-    let msg=`💰 *Split de gastos — ${entity.label}*
+    let msg=`💰 *Split — ${entity.label}*
 
-`;
-    msg+=`Total gastado: ${("$"+total.toLocaleString("es-CL"))}
+Total: $${total.toLocaleString("es-CL")}
 
+*PAGOS*
 `;
-    msg+=`*Resumen por persona:*
-`;
-    members.forEach(m=>{
-      const b=balance[m.id]||0;
-      const name=m.nombre||m.email;
-      if(b>0) msg+=`${name}: recibe $${b.toLocaleString("es-CL")} ✅
-`;
-      else if(b<0) msg+=`${name}: debe $${Math.abs(b).toLocaleString("es-CL")} ❌
-`;
-      else msg+=`${name}: está al día ➖
-`;
-    });
+    members.forEach(m=>{msg+=`${m.nombre||m.email}: $${(paid[m.id]||0).toLocaleString("es-CL")} pagó / $${(owes[m.id]||0).toLocaleString("es-CL")} le corresponde
+`;});
+    if(transactions.length>0){msg+=`
+*TRANSFERENCIAS*
+`;transactions.forEach(t=>{msg+=`${t.from.nombre||t.from.email} → ${t.to.nombre||t.to.email}: $${t.amount.toLocaleString("es-CL")}
+`;});}
     window.open("https://wa.me/?text="+encodeURIComponent(msg),"_blank");
   };
 
-  if(loading) return <Spinner text="Calculando split…"/>;
+  if(loading) return <Spinner text="Calculando split..."/>;
   if(!entity) return null;
 
   const {paid,owes,balance}=calcSplit();
+  const transactions=calcSimplified(balance);
   const total=groupExpenses.reduce((s,x)=>s+(x.monto_total||0),0);
+  const perPerson=members.length>0?Math.round(total/members.length):0;
   const inviteUrl=`https://rendir-gastos-sli.vercel.app?invite=${entity.invite_token}`;
 
   return (
     <div style={S.page}>
       <TopBar title={entity.label} onBack={()=>nav("home")} right={
-        <button onClick={shareWhatsApp} style={{background:"#25D366",color:"#fff",border:"none",borderRadius:9,padding:"7px 12px",cursor:"pointer",fontWeight:700,fontSize:12,fontFamily:"inherit"}}>📲 WA</button>
+        <button onClick={shareWA} style={{background:"#25D366",color:"#fff",border:"none",borderRadius:9,padding:"7px 12px",cursor:"pointer",fontWeight:700,fontSize:12,fontFamily:"inherit"}}>📲 WA</button>
       }/>
 
-      {/* Invite link */}
+      {/* Invite */}
       <div style={{background:"#f0f7ff",border:"1px solid #bee3f8",borderRadius:12,padding:"12px 14px",marginBottom:16}}>
         <div style={{fontWeight:700,fontSize:13,color:"#1a5276",marginBottom:6}}>🔗 Link de invitación</div>
-        <div style={{fontSize:12,color:"#555",marginBottom:8,wordBreak:"break-all"}}>{inviteUrl}</div>
-        <button onClick={()=>{navigator.clipboard.writeText(inviteUrl);alert("¡Link copiado!");}}
-          style={{background:"#1a5276",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>
-          Copiar link
-        </button>
-        <button onClick={()=>window.open("https://wa.me/?text="+encodeURIComponent("Unite a nuestro grupo de gastos: "+inviteUrl),"_blank")}
-          style={{background:"#25D366",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",marginLeft:8}}>
-          Enviar por WA
-        </button>
-      </div>
-
-      {/* Total */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
-        <div style={{background:"#1a5276"+"10",border:"1px solid #1a5276"+"25",borderRadius:12,padding:"10px",textAlign:"center"}}>
-          <div style={{fontSize:11,color:"#aaa",marginBottom:3}}>Total gastado</div>
-          <div style={{fontFamily:"'Georgia',serif",fontWeight:700,color:"#1a5276",fontSize:18}}>${total.toLocaleString("es-CL")}</div>
-        </div>
-        <div style={{background:"#1a7a4a"+"10",border:"1px solid #1a7a4a"+"25",borderRadius:12,padding:"10px",textAlign:"center"}}>
-          <div style={{fontSize:11,color:"#aaa",marginBottom:3}}>Participantes</div>
-          <div style={{fontFamily:"'Georgia',serif",fontWeight:700,color:"#1a7a4a",fontSize:18}}>{members.length}</div>
+        <div style={{fontSize:11,color:"#555",marginBottom:8,wordBreak:"break-all"}}>{inviteUrl}</div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>{navigator.clipboard.writeText(inviteUrl);alert("¡Copiado!");}} style={{background:"#1a5276",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>Copiar</button>
+          <button onClick={()=>window.open("https://wa.me/?text="+encodeURIComponent("Unite al grupo: "+inviteUrl),"_blank")} style={{background:"#25D366",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>WA</button>
         </div>
       </div>
 
-      {/* Split summary */}
-      <div style={S.sectionLabel}>Resumen por persona</div>
-      {members.map(m=>{
-        const b=balance[m.id]||0;
-        const p=paid[m.id]||0;
-        const o=owes[m.id]||0;
-        return (
-          <div key={m.id} style={{...S.card,borderLeft:`4px solid ${b>=0?"#1a7a4a":"#c0392b"}`}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-              <div style={{flex:1}}>
-                <div style={{fontWeight:700,fontSize:15}}>{m.nombre||m.email}</div>
-                <div style={{fontSize:12,color:"#888",marginTop:2}}>
-                  Pagó: ${p.toLocaleString("es-CL")} · Le corresponde: ${o.toLocaleString("es-CL")}
-                </div>
-              </div>
-              <div style={{textAlign:"right",marginLeft:12}}>
-                <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:b>=0?"#1a7a4a":"#c0392b"}}>
-                  {b>=0?"+":""}{("$"+Math.abs(b).toLocaleString("es-CL"))}
-                </div>
-                <div style={{fontSize:11,color:"#888"}}>{b>0?"recibe":b<0?"debe":"al día"}</div>
-              </div>
-            </div>
+      {/* Totals */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
+        {[{label:"Total",value:`$${total.toLocaleString("es-CL")}`,color:"#1a5276"},{label:"Por persona",value:`$${perPerson.toLocaleString("es-CL")}`,color:"#1a7a4a"},{label:"Participantes",value:String(members.length),color:"#7d3c98"}].map(item=>(
+          <div key={item.label} style={{background:item.color+"10",border:`1px solid ${item.color}25`,borderRadius:12,padding:"10px 8px",textAlign:"center"}}>
+            <div style={{fontSize:10,color:"#aaa",marginBottom:3}}>{item.label}</div>
+            <div style={{fontFamily:"'Georgia',serif",fontWeight:700,color:item.color,fontSize:14}}>{item.value}</div>
           </div>
-        );
-      })}
+        ))}
+      </div>
 
-      {/* Gastos del grupo */}
+      {/* View toggle */}
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        {[["detailed","📊 Detallado"],["simple","⚡ Simplificado"]].map(([v,label])=>(
+          <button key={v} onClick={()=>setView(v)} style={{flex:1,padding:"9px",borderRadius:10,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:view===v?"#1a5276":"#f0f0f0",color:view===v?"#fff":"#555",fontFamily:"inherit"}}>{label}</button>
+        ))}
+      </div>
+
+      {/* DETAILED VIEW */}
+      {view==="detailed"&&(
+        <>
+          <div style={S.sectionLabel}>Detalle por persona</div>
+          {members.map(m=>{
+            const p=paid[m.id]||0, o=owes[m.id]||0, b=balance[m.id]||0;
+            return (
+              <div key={m.id} style={{...S.card,borderLeft:`4px solid ${b>=0?"#1a7a4a":"#c0392b"}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <div style={{fontWeight:700,fontSize:15}}>{m.nombre||m.email}</div>
+                  <div style={{fontSize:12,background:b>=0?"#e8f5e9":"#fde8e8",color:b>=0?"#2e7d32":"#b00020",borderRadius:6,padding:"3px 10px",fontWeight:700}}>
+                    {b>0?`recibe $${b.toLocaleString("es-CL")}`:b<0?`debe $${Math.abs(b).toLocaleString("es-CL")}`:"al día"}
+                  </div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <div style={{background:"#f0f7ff",borderRadius:8,padding:"8px 10px"}}>
+                    <div style={{fontSize:11,color:"#aaa",marginBottom:2}}>💳 Pagó</div>
+                    <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:"#1a5276"}}>${p.toLocaleString("es-CL")}</div>
+                  </div>
+                  <div style={{background:"#f5f5f5",borderRadius:8,padding:"8px 10px"}}>
+                    <div style={{fontSize:11,color:"#aaa",marginBottom:2}}>📌 Le corresponde</div>
+                    <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:"#555"}}>${o.toLocaleString("es-CL")}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      {/* SIMPLE VIEW */}
+      {view==="simple"&&(
+        <>
+          {transactions.length===0?(
+            <div style={{...S.card,textAlign:"center",padding:"28px"}}>
+              <div style={{fontSize:44,marginBottom:8}}>✅</div>
+              <div style={{fontWeight:700,fontSize:16}}>¡Todos al día!</div>
+              <div style={{fontSize:13,color:"#888",marginTop:4}}>No hay deudas pendientes.</div>
+            </div>
+          ):(
+            <>
+              <div style={S.sectionLabel}>Transferencias a realizar</div>
+              {transactions.map((t,i)=>(
+                <div key={i} style={{...S.card,borderLeft:"4px solid #c0392b",padding:"16px 14px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:12}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:700,fontSize:15,color:"#c0392b"}}>{t.from.nombre||t.from.email}</div>
+                      <div style={{fontSize:12,color:"#aaa",margin:"4px 0"}}>↓ transfiere a</div>
+                      <div style={{fontWeight:700,fontSize:15,color:"#1a7a4a"}}>{t.to.nombre||t.to.email}</div>
+                    </div>
+                    <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:24,color:"#1a5276"}}>${t.amount.toLocaleString("es-CL")}</div>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+          <div style={{...S.sectionLabel,marginTop:20}}>Balance</div>
+          {members.map(m=>{
+            const b=balance[m.id]||0;
+            return (
+              <div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #f0f0f0"}}>
+                <span style={{fontWeight:600,fontSize:14}}>{m.nombre||m.email}</span>
+                <span style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:15,color:b>0?"#1a7a4a":b<0?"#c0392b":"#888"}}>
+                  {b>0?`+$${b.toLocaleString("es-CL")}`:b<0?`-$${Math.abs(b).toLocaleString("es-CL")}`:"$0"}
+                </span>
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      {/* Expenses */}
       <div style={{...S.sectionLabel,marginTop:20}}>Gastos del grupo</div>
-      {groupExpenses.length===0&&<div style={S.empty}><div>Sin gastos en este grupo todavía</div></div>}
+      {groupExpenses.length===0&&<div style={S.empty}><div>Sin gastos todavía</div></div>}
       {[...groupExpenses].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(exp=>{
         const parts=expParticipants[exp.id]||[];
         const payer=members.find(m=>m.id===exp.user_id);
@@ -1136,8 +1184,8 @@ function GroupSplitScreen({entity,expenses,nav}) {
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
               <div style={{flex:1}}>
                 <div style={S.cardTitle}>{exp.comercio||"Sin nombre"}</div>
-                <div style={{fontSize:12,color:"#888",marginTop:2}}>Pagó: {payer?.nombre||payer?.email||"?"}</div>
-                {parts.length>0&&<div style={{fontSize:11,color:"#aaa",marginTop:2}}>Participantes: {parts.length} · ${Math.round((exp.monto_total||0)/parts.length).toLocaleString("es-CL")} c/u</div>}
+                <div style={{fontSize:12,color:"#888",marginTop:2}}>💳 <strong>{payer?.nombre||payer?.email||"?"}</strong></div>
+                {parts.length>0&&<div style={{fontSize:11,color:"#aaa",marginTop:2}}>👥 {parts.length} personas · ${Math.round((exp.monto_total||0)/Math.max(parts.length,1)).toLocaleString("es-CL")} c/u</div>}
                 <div style={S.meta}>{iso2d(exp.fecha)} · {exp.categoria}</div>
               </div>
               <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:"#1a5276",marginLeft:8}}>${(exp.monto_total||0).toLocaleString("es-CL")}</div>
@@ -1149,6 +1197,7 @@ function GroupSplitScreen({entity,expenses,nav}) {
     </div>
   );
 }
+
 
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
