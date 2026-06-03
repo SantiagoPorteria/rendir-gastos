@@ -1165,15 +1165,14 @@ export default function App() {
 
   // Check for invite token in URL on load
   const [inviteToken] = useState(()=>new URLSearchParams(window.location.search).get("invite"));
-  useEffect(()=>{
-    if(inviteToken) setScreen("invite");
-  },[inviteToken]);
 
   // Auth listener
   useEffect(()=>{
     supabase.auth.getSession().then(({data:{session}})=>{
       if(session?.user) initUser(session.user);
       else setLoading(false);
+      // Check invite token after auth
+      if(inviteToken) setScreen("invite");
     });
     const {data:{subscription}} = supabase.auth.onAuthStateChange((_,session)=>{
       if(session?.user) initUser(session.user);
