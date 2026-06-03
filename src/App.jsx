@@ -353,10 +353,28 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
   const upd=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
 
   const handleFile=file=>{
-    if(!file)return; setMimeType(file.type||"image/jpeg");
-    const r=new FileReader();
-    r.onload=ev=>{setImgData({base64:ev.target.result.split(",")[1],url:ev.target.result});setStep("preview");};
-    r.readAsDataURL(file);
+    if(!file)return;
+    // Compress image before storing
+    const canvas=document.createElement("canvas");
+    const img=new Image();
+    const objectUrl=URL.createObjectURL(file);
+    img.onload=()=>{
+      // Max 1200px width/height
+      const maxSize=1200;
+      let w=img.width, h=img.height;
+      if(w>maxSize||h>maxSize){
+        if(w>h){h=Math.round(h*maxSize/w);w=maxSize;}
+        else{w=Math.round(w*maxSize/h);h=maxSize;}
+      }
+      canvas.width=w; canvas.height=h;
+      canvas.getContext("2d").drawImage(img,0,0,w,h);
+      const dataUrl=canvas.toDataURL("image/jpeg",0.85);
+      setMimeType("image/jpeg");
+      setImgData({base64:dataUrl.split(",")[1],url:dataUrl});
+      setStep("preview");
+      URL.revokeObjectURL(objectUrl);
+    };
+    img.src=objectUrl;
   };
 
   const analyze=async()=>{
