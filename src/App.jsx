@@ -152,6 +152,12 @@ function AuthScreen({onAuth}) {
             : <span>¿Ya tenés cuenta? <button onClick={()=>setMode("login")} style={{background:"none",border:"none",color:"#1a5276",cursor:"pointer",fontWeight:700,fontSize:13}}>Entrar</button></span>
           }
         </div>
+        {mode==="login"&&(
+          <div style={{marginTop:16,background:"#f0f7ff",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
+            <div style={{fontSize:12,color:"#555"}}>¿Te invitaron a usar la app?</div>
+            <div style={{fontSize:12,color:"#1a5276",fontWeight:600,marginTop:3}}>Registrate con el botón de arriba y luego confirmá tu email.</div>
+          </div>
+        )}
       </div>
     </div>
   );
