@@ -803,17 +803,79 @@ function AdminScreen({entities,nav}) {
   };
 
   const globalEntities=entities.filter(e=>e.type==="global");
+  const groupEntities=entities.filter(e=>e.type==="group");
+  const [adminTab,setAdminTab]=useState("global"); // global | groups
+  const [groupMembers,setGroupMembers]=useState({});
+
+  useEffect(()=>{
+    if(groupEntities.length===0)return;
+    (async()=>{
+      const {data:mem}=await supabase.from("entity_members").select("*").in("entity_id",groupEntities.map(e=>e.id));
+      const map={};
+      (mem||[]).forEach(m=>{if(!map[m.entity_id])map[m.entity_id]=[];map[m.entity_id].push(m.user_id);});
+      setGroupMembers(map);
+    })();
+  },[groupEntities.length]);
+
+  const toggleGroupAccess=async(userId,entityId,hasAccess)=>{
+    if(hasAccess){
+      await supabase.from("entity_members").delete().eq("user_id",userId).eq("entity_id",entityId);
+      setGroupMembers(m=>({...m,[entityId]:(m[entityId]||[]).filter(id=>id!==userId)}));
+    } else {
+      const {error}=await supabase.from("entity_members").insert({user_id:userId,entity_id:entityId,can_write:true});
+      if(error){alert("Error: "+error.message);return;}
+      setGroupMembers(m=>({...m,[entityId]:[...(m[entityId]||[]),userId]}));
+    }
+  };
 
   if(loading) return <Spinner text="Cargando usuarios…"/>;
 
   return (
     <div style={S.page}>
       <TopBar title="Gestión de Usuarios" onBack={()=>nav("home")}/>
-      <div style={{background:"#f0f7ff",border:"1px solid #bee3f8",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#1a5276"}}>
-        Asignás qué entidades globales puede ver cada usuario.
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        {[["global","🌐 Globales"],["groups","👥 Grupos"]].map(([t,label])=>(
+          <button key={t} onClick={()=>setAdminTab(t)} style={{flex:1,padding:"9px",borderRadius:10,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:adminTab===t?"#1a5276":"#f0f0f0",color:adminTab===t?"#fff":"#555",fontFamily:"inherit"}}>{label}</button>
+        ))}
       </div>
 
-      {users.map(user=>(
+      {adminTab==="global"&&<div style={{background:"#f0f7ff",border:"1px solid #bee3f8",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#1a5276"}}>
+        Asignás qué entidades globales puede ver cada usuario.
+      </div>}
+
+      {adminTab==="groups"&&(
+        <div>
+          <div style={{background:"#f0fff4",border:"1px solid #a8d5bc",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#1a7a4a"}}>
+            Agregá o quitá usuarios de los grupos sin que usen el link.
+          </div>
+          {groupEntities.map(ent=>(
+            <div key={ent.id} style={{...S.card,marginBottom:12}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,paddingBottom:10,borderBottom:"1px solid #f0f0f0"}}>
+                <EntityIcon entity={ent} size={28}/>
+                <div style={{fontWeight:700,fontSize:15,color:ent.color}}>{ent.label}</div>
+                <div style={{marginLeft:"auto",fontSize:12,color:"#aaa"}}>{(groupMembers[ent.id]||[]).length} miembros</div>
+              </div>
+              {users.filter(u=>u.id!==ent.owner_id).map(user=>{
+                const hasAccess=(groupMembers[ent.id]||[]).includes(user.id);
+                return (
+                  <div key={user.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #f8f8f8"}}>
+                    <div>
+                      <div style={{fontWeight:600,fontSize:13}}>{user.nombre||"Sin nombre"}</div>
+                      <div style={{fontSize:11,color:"#aaa"}}>{user.email}</div>
+                    </div>
+                    <button onClick={()=>toggleGroupAccess(user.id,ent.id,hasAccess)}
+                      style={{background:hasAccess?"#1a7a4a":"#f0f0f0",color:hasAccess?"#fff":"#555",border:"none",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>
+                      {hasAccess?"✓ En grupo":"+ Agregar"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {adminTab==="global"&&users.map(user=>(
         <div key={user.id} style={{...S.card,marginBottom:12}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
             <div style={{width:36,height:36,borderRadius:"50%",background:"#1a5276",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:14}}>
