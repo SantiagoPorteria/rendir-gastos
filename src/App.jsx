@@ -100,8 +100,9 @@ function AuthScreen({onAuth}) {
           options:{data:{nombre}}
         });
         if(error) throw error;
-        if(data.user) onAuth(data.user);
-        else setErr("Revisá tu email para confirmar la cuenta.");
+        // Always show confirm message - Supabase requires email confirmation
+        setErr("__confirm__");
+        return;
       }
     } catch(e){ setErr(e.message); }
     setLoading(false);
@@ -132,7 +133,14 @@ function AuthScreen({onAuth}) {
             onKeyDown={e=>e.key==="Enter"&&submit()}/>
         </div>
 
-        {err&&<div style={{background:"#fde8e8",color:"#b00020",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13}}>{err}</div>}
+        {err&&err!=="__confirm__"&&<div style={{background:"#fde8e8",color:"#b00020",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13}}>{err}</div>}
+        {err==="__confirm__"&&(
+          <div style={{background:"#e8f5e9",border:"1px solid #a8d5bc",borderRadius:12,padding:"16px",marginBottom:12,textAlign:"center"}}>
+            <div style={{fontSize:32,marginBottom:8}}>📧</div>
+            <div style={{fontWeight:700,fontSize:15,color:"#1a7a4a",marginBottom:6}}>¡Revisá tu email!</div>
+            <div style={{fontSize:13,color:"#555"}}>Te enviamos un link de confirmación a <strong>{email}</strong>. Confirmá tu cuenta y luego volvé a entrar.</div>
+          </div>
+        )}
 
         <button onClick={submit} disabled={loading} style={{...S.btn,opacity:loading?0.6:1}}>
           {loading?"Cargando…":mode==="login"?"Entrar":"Crear cuenta"}
@@ -964,6 +972,10 @@ function InviteScreen({nav, token}) {
         user=data.user;
       }
       if(user && entity) joinGroup(entity, user);
+      else if(!user) {
+        // Need email confirmation
+        setAuthErr("__confirm__");
+      }
     } catch(e){setAuthErr(e.message);setJoining(false);}
   };
 
@@ -987,7 +999,14 @@ function InviteScreen({nav, token}) {
             {authMode==="login"?"Entrá con tu cuenta para unirte":"Creá una cuenta para unirte al grupo"}
           </div>
         </div>
-        {authErr&&<div style={{background:"#fde8e8",color:"#b00020",borderRadius:10,padding:"10px",marginBottom:12,fontSize:13}}>{authErr}</div>}
+        {authErr&&authErr!=="__confirm__"&&<div style={{background:"#fde8e8",color:"#b00020",borderRadius:10,padding:"10px",marginBottom:12,fontSize:13}}>{authErr}</div>}
+        {authErr==="__confirm__"&&(
+          <div style={{background:"#e8f5e9",border:"1px solid #a8d5bc",borderRadius:12,padding:"14px",marginBottom:12,textAlign:"center"}}>
+            <div style={{fontSize:28,marginBottom:6}}>📧</div>
+            <div style={{fontWeight:700,fontSize:14,color:"#1a7a4a",marginBottom:4}}>¡Revisá tu email!</div>
+            <div style={{fontSize:12,color:"#555"}}>Confirmá tu cuenta y luego volvé a abrir este link para unirte al grupo.</div>
+          </div>
+        )}
         {authMode==="register"&&(
           <div style={S.group}>
             <div style={S.label}>Nombre</div>
