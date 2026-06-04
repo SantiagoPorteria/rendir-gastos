@@ -1636,9 +1636,11 @@ export default function App() {
 
   const markSeen=(entityId)=>{
     const now=new Date().toISOString();
-    const updated={...lastSeen,[entityId]:now};
-    setLastSeen(updated);
-    localStorage.setItem("lastSeen_v1",JSON.stringify(updated));
+    setLastSeen(prev=>{
+      const updated={...prev,[entityId]:now};
+      localStorage.setItem("lastSeen_v1",JSON.stringify(updated));
+      return updated;
+    });
   };
 
   const getUnseenCount=(entityId)=>{
