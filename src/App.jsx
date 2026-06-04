@@ -1017,10 +1017,18 @@ function InviteScreen({nav, token}) {
 
   const joinGroup = async (ent, user) => {
     setJoining(true);
+    // Refresh session to ensure we have valid auth token
+    await supabase.auth.refreshSession();
     const {data:existing}=await supabase.from("entity_members").select("id").eq("entity_id",ent.id).eq("user_id",user.id).single();
-    if(existing){setMsg({type:"info",text:`Ya sos miembro de "${ent.label}".`});setJoining(false);return;}
+    if(existing){setMsg({type:"info",text:`Ya sos miembro de "${ent.label}".`});setJoining(false);setTimeout(()=>window.location.href="/",1500);return;}
     const {error:joinError}=await supabase.from("entity_members").insert({entity_id:ent.id,user_id:user.id});
-    if(joinError){setMsg({type:"error",text:"Error al unirse: "+joinError.message});setJoining(false);return;}
+    if(joinError){
+      // If still failing, show login form
+      if(joinError.message.includes("row-level security")||joinError.message.includes("policy")){
+        setNeedsAuth(true);setJoining(false);return;
+      }
+      setMsg({type:"error",text:"Error al unirse: "+joinError.message});setJoining(false);return;
+    }
     setMsg({type:"success",text:`¡Te uniste a "${ent.label}" exitosamente!`});
     setJoining(false);
     setTimeout(()=>window.location.href="/",2000);
