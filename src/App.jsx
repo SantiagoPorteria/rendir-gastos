@@ -164,7 +164,7 @@ function AuthScreen({onAuth}) {
 }
 
 // ─── HOME ─────────────────────────────────────────────────────────────────────
-function HomeScreen({profile,entities,expenses,nav,onSignOut}) {
+function HomeScreen({profile,entities,expenses,nav,onSignOut,totalUnseen=0,getUnseenCount,markSeen,userId}) {
   const now = new Date();
   const grandTotal = expenses.reduce((s,x)=>s+(x.monto_total||0),0);
 
@@ -178,8 +178,14 @@ function HomeScreen({profile,entities,expenses,nav,onSignOut}) {
             {profile?.role==="admin"&&<span style={{marginLeft:6,background:"#1a5276",color:"#fff",borderRadius:4,padding:"1px 6px",fontSize:10,fontWeight:700}}>ADMIN</span>}
           </div>
         </div>
-        <div style={{textAlign:"right"}}>
-          <div style={{fontSize:11,color:"#aaa",marginBottom:2}}>Total mes</div>
+        <div style={{textAlign:"right",display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+          {totalUnseen>0&&(
+            <div style={{display:"flex",alignItems:"center",gap:4,background:"#fde8e8",borderRadius:10,padding:"3px 10px"}}>
+              <span style={{fontSize:14}}>🔔</span>
+              <span style={{fontSize:12,fontWeight:700,color:"#b00020"}}>{totalUnseen} nuevo{totalUnseen!==1?"s":""}</span>
+            </div>
+          )}
+          <div style={{fontSize:11,color:"#aaa"}}>Total mes</div>
           <div style={{fontFamily:"'Georgia',serif",fontSize:20,fontWeight:700,color:"#1a5276"}}>{clp(grandTotal)}</div>
         </div>
       </div>
@@ -191,14 +197,21 @@ function HomeScreen({profile,entities,expenses,nav,onSignOut}) {
           const cnt=expenses.filter(x=>x.entity_id===e.id).length;
           const typeTag = e.type==="group"?"👥":e.type==="global"?"🌐":"";
           return (
-            <div key={e.id} onClick={()=>e.type==="group"?nav("groupSplit",{entityId:e.id}):nav("entityExpenses",{entityId:e.id})}
+            <div key={e.id} onClick={()=>{if(markSeen)markSeen(e.id);e.type==="group"?nav("groupSplit",{entityId:e.id}):nav("entityExpenses",{entityId:e.id});}}
               style={{background:e.color+"12",border:`1.5px solid ${e.color}33`,borderRadius:14,padding:"14px 12px",cursor:"pointer"}}>
               <div style={{marginBottom:6,display:"flex",alignItems:"center",justifyContent:"flex-start"}}><EntityIcon entity={e} size={32}/></div>
               <div style={{fontSize:11,fontWeight:700,color:e.color,lineHeight:1.2,marginBottom:4}}>
                 {e.label} {typeTag&&<span style={{fontSize:10}}>{typeTag}</span>}
               </div>
               <div style={{fontFamily:"'Georgia',serif",fontSize:17,fontWeight:700,color:e.color}}>{clp(tot)}</div>
-              <div style={{fontSize:11,color:"#aaa",marginTop:2}}>{cnt} gasto{cnt!==1?"s":""}</div>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+                <div style={{fontSize:11,color:"#aaa"}}>{cnt} gasto{cnt!==1?"s":""}</div>
+                {getUnseenCount&&getUnseenCount(e.id)>0&&(
+                  <div style={{background:"#c0392b",color:"#fff",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:700}}>
+                    {getUnseenCount(e.id)} nuevo{getUnseenCount(e.id)!==1?"s":""}
+                  </div>
+                )}
+              </div>
             </div>
           );
         })}
@@ -1617,6 +1630,24 @@ export default function App() {
   const [categories,setCategories]=useState([...DEFAULT_CATEGORIES]);
   const [loading,setLoading]     = useState(true);
   const [screen,setScreen]       = useState("home");
+  const [lastSeen,setLastSeen]   = useState(()=>{
+    try{return JSON.parse(localStorage.getItem("lastSeen_v1")||"{}");}catch{return {};}
+  });
+
+  const markSeen=(entityId)=>{
+    const now=new Date().toISOString();
+    const updated={...lastSeen,[entityId]:now};
+    setLastSeen(updated);
+    localStorage.setItem("lastSeen_v1",JSON.stringify(updated));
+  };
+
+  const getUnseenCount=(entityId)=>{
+    const last=lastSeen[entityId];
+    if(!last) return expenses.filter(e=>e.entity_id===entityId&&e.user_id!==user?.id).length;
+    return expenses.filter(e=>e.entity_id===entityId&&e.user_id!==user?.id&&new Date(e.created_at)>new Date(last)).length;
+  };
+
+  const totalUnseen=entities.reduce((s,e)=>s+getUnseenCount(e.id),0);
   const [screenParams,setParams] = useState({});
 
   const nav = useCallback((s,params={})=>{setScreen(s);setParams(params||{});});
@@ -1701,7 +1732,7 @@ export default function App() {
   return (
     <div style={{fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",background:"#f7f5f0",minHeight:"100vh"}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0;}input:focus,select:focus,textarea:focus{outline:2px solid #1a5276;outline-offset:1px;}@keyframes spin{to{transform:rotate(360deg);}}button:active{opacity:.85;}`}</style>
-      {screen==="home"      && <HomeScreen    {...commonProps} onSignOut={signOut}/>}
+      {screen==="home"      && <HomeScreen    {...commonProps} onSignOut={signOut} totalUnseen={totalUnseen} getUnseenCount={getUnseenCount} markSeen={markSeen} userId={user?.id}/>}
       {screen==="capture"   && <CaptureScreen {...commonProps} onSaved={exp=>{setExpenses(e=>[exp,...e]);}}/>}
       {screen==="report"    && <ReportScreen  {...commonProps} initParams={screenParams} onDelete={id=>setExpenses(e=>e.filter(x=>x.id!==id))} onUpdate={updated=>setExpenses(e=>e.map(x=>x.id===updated.id?updated:x))}/>}
       {screen==="newEntity" && <NewEntityScreen {...commonProps} onCreated={e=>setEntities(prev=>[...prev,e])}/>}
