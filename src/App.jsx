@@ -1190,8 +1190,25 @@ function GroupSplitScreen({entity,expenses,nav}) {
     return tx;
   };
 
-  const startEdit=(exp)=>{setEditing(exp.id);setEditForm({comercio:exp.comercio||"",rut_comercio:exp.rut_comercio||"",monto_total:exp.monto_total||"",monto_neto:exp.monto_neto||"",iva:exp.iva||"",fecha:exp.fecha||"",tipo_documento:exp.tipo_documento||"boleta",numero_documento:exp.numero_documento||"",categoria:exp.categoria||"Otro",descripcion:exp.descripcion||"",nota:exp.nota||""});};
-  const saveEdit=async(expId)=>{setSavingEdit(true);await supabase.from("expenses").update({comercio:editForm.comercio,rut_comercio:editForm.rut_comercio,monto_total:parseInt(String(editForm.monto_total).replace(/[^0-9]/g,""))||0,monto_neto:parseInt(String(editForm.monto_neto).replace(/[^0-9]/g,""))||0,iva:parseInt(String(editForm.iva).replace(/[^0-9]/g,""))||0,fecha:editForm.fecha,tipo_documento:editForm.tipo_documento,numero_documento:editForm.numero_documento,categoria:editForm.categoria,descripcion:editForm.descripcion,nota:editForm.nota}).eq("id",expId);setSavingEdit(false);setEditing(null);};
+  const startEdit=(exp)=>{
+    setEditing(exp.id);
+    setEditForm({
+      participants: expParticipants[exp.id]||null,
+      comercio:exp.comercio||"",rut_comercio:exp.rut_comercio||"",monto_total:exp.monto_total||"",monto_neto:exp.monto_neto||"",iva:exp.iva||"",fecha:exp.fecha||"",tipo_documento:exp.tipo_documento||"boleta",numero_documento:exp.numero_documento||"",categoria:exp.categoria||"Otro",descripcion:exp.descripcion||"",nota:exp.nota||""});};
+  const saveEdit=async(expId)=>{
+    setSavingEdit(true);
+    await supabase.from("expenses").update({comercio:editForm.comercio,rut_comercio:editForm.rut_comercio,monto_total:parseInt(String(editForm.monto_total).replace(/[^0-9]/g,""))||0,monto_neto:parseInt(String(editForm.monto_neto).replace(/[^0-9]/g,""))||0,iva:parseInt(String(editForm.iva).replace(/[^0-9]/g,""))||0,fecha:editForm.fecha,tipo_documento:editForm.tipo_documento,numero_documento:editForm.numero_documento,categoria:editForm.categoria,descripcion:editForm.descripcion,nota:editForm.nota}).eq("id",expId);
+    // Update participants if changed
+    if(editForm.participants){
+      await supabase.from("expense_participants").delete().eq("expense_id",expId);
+      if(editForm.participants.length>0){
+        await supabase.from("expense_participants").insert(editForm.participants.map(uid=>({expense_id:expId,user_id:uid})));
+      }
+      setExpParticipants(prev=>({...prev,[expId]:editForm.participants}));
+    }
+    setSavingEdit(false);
+    setEditing(null);
+  };
   const updEdit=k=>e=>setEditForm(f=>({...f,[k]:e.target.value}));
 
   const shareWA=()=>{
@@ -1276,6 +1293,29 @@ Total: $${total.toLocaleString("es-CL")}
                       <div style={{flex:1}}><div style={S.label}>Categoría</div><select style={S.input} value={editForm.categoria} onChange={updEdit("categoria")}>{CATS.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
                     </div>
                     <div style={{marginBottom:10}}><div style={S.label}>Nota</div><input style={S.input} value={editForm.nota} onChange={updEdit("nota")}/></div>
+                    <div style={{marginBottom:10}}>
+                      <div style={S.label}>¿Quiénes participan en este gasto?</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:4}}>
+                        {members.map(m=>{
+                          const isSelected=(editForm.participants||members.map(x=>x.id)).includes(m.id);
+                          return (
+                            <button key={m.id} onClick={()=>{
+                              const current=editForm.participants||members.map(x=>x.id);
+                              const updated=isSelected?current.filter(id=>id!==m.id):[...current,m.id];
+                              setEditForm(f=>({...f,participants:updated}));
+                            }} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:8,border:`1.5px solid ${isSelected?"#1a5276":"#e0e0e0"}`,background:isSelected?"#e8f0fe":"#fff",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                              <span style={{fontSize:16}}>{isSelected?"☑️":"⬜"}</span>
+                              <span style={{fontWeight:600,fontSize:13,color:isSelected?"#1a5276":"#555"}}>{m.nombre||m.email}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {(editForm.participants||members.map(x=>x.id)).length>0&&editForm.monto_total&&(
+                        <div style={{background:"#f0f7ff",borderRadius:8,padding:"8px 12px",marginTop:6,fontSize:13,color:"#1a5276"}}>
+                          Cada uno: <strong>{clp(Math.round((parseInt(String(editForm.monto_total).replace(/[^0-9]/g,""))||0)/Math.max((editForm.participants||members.map(x=>x.id)).length,1)))}</strong>
+                        </div>
+                      )}
+                    </div>
                     <div style={{display:"flex",gap:8}}>
                       <button onClick={()=>saveEdit(exp.id)} disabled={savingEdit} style={{flex:1,background:"#1a5276",color:"#fff",border:"none",borderRadius:10,padding:"11px",fontWeight:700,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>{savingEdit?"Guardando...":"💾 Guardar"}</button>
                       <button onClick={()=>setEditing(null)} style={{flex:1,background:"#f0f0f0",border:"none",borderRadius:10,padding:"11px",fontWeight:700,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>Cancelar</button>
