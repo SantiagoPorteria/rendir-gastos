@@ -1466,6 +1466,23 @@ Total: $${total.toLocaleString("es-CL")}
         <div>
 
 
+          {/* Invite link - simple */}
+          {entity.invite_token&&(
+            <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center",background:"#f5f5f5",borderRadius:12,padding:"10px 14px"}}>
+              <div style={{flex:1,fontSize:12,color:"#555",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                🔗 Link de invitación
+              </div>
+              <button onClick={()=>{navigator.clipboard.writeText(`https://rendir-gastos-sli.vercel.app?invite=${entity.invite_token}`);alert("¡Link copiado!");}}
+                style={{background:"#1a5276",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",flexShrink:0}}>
+                Copiar
+              </button>
+              <button onClick={()=>window.open(`https://wa.me/?text=${encodeURIComponent("Únete al grupo: https://rendir-gastos-sli.vercel.app?invite=${entity.invite_token}")}` ,"_blank")}
+                style={{background:"#25D366",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",flexShrink:0}}>
+                WA
+              </button>
+            </div>
+          )}
+
           {/* Totals */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
             {[{label:"Total",value:clp(total),color:"#1a5276"},{label:"Por persona",value:clp(perPerson),color:"#1a7a4a"},{label:"Participantes",value:String(members.length),color:"#7d3c98"}].map(item=>(
