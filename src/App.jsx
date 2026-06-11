@@ -9,7 +9,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const PALETTE = ["#1a5276","#1a7a4a","#7d3c98","#b7770d","#c0392b","#2e86c1","#17a589","#d35400","#839192","#2c3e50"];
 const MONTH_NAMES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-const DEFAULT_CATEGORIES = ["Bencina","Almuerzos","Gastos Oficina","Peajes","Estacionamientos","Supermercado","Restaurantes","Clientes","Merchandising","Eventos","Otro"];
+const DEFAULT_CATEGORIES = ["Bencina","Almuerzos","Cafetería","Gastos Oficina","Peajes","Estacionamientos","Supermercado","Restaurantes","Clientes","Merchandising","Eventos","Otro"];
 const ENTITY_ICONS = ["🏢","🏗️","🏠","🚗","✈️","🎉","🤝","💼","🏪","⚽","🎨","📦"];
 
 const ENTITY_LOGOS = {
@@ -239,10 +239,10 @@ function HomeScreen({profile,entities,expenses,nav,onSignOut,totalUnseen=0,getUn
           <div key={exp.id} style={{...S.card,borderLeft:`4px solid ${ent?.color||"#ccc"}`}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
               <div style={{flex:1,minWidth:0}}>
-                <div style={S.cardTitle}>{exp.comercio||"Sin nombre"}</div>
+                <div style={S.cardTitle}>{exp.categoria||"Sin categoría"}</div>
                 <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:4}}>
                   {ent&&<Badge color={ent.color}>{ent.icon} {ent.label}</Badge>}
-                  <Badge color="#666">{exp.categoria}</Badge>
+                  {exp.comercio&&<Badge color="#666">{exp.comercio}</Badge>}
                 </div>
                 <div style={S.meta}>{iso2d(exp.fecha)}{exp.rut_comercio?` · ${exp.rut_comercio}`:""}</div>
               </div>
@@ -720,7 +720,7 @@ function ReportScreen({entities,expenses,categories,nav,initParams,onDelete,onUp
               {exp.image_url&&<img src={exp.image_url} alt="" style={{width:60,height:60,objectFit:"cover",borderRadius:8,flexShrink:0}}/>}
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                  <div style={S.cardTitle}>{exp.comercio||"Sin nombre"}</div>
+                  <div style={S.cardTitle}>{exp.categoria||"Sin categoría"}{exp.comercio?` · ${exp.comercio}`:""}</div>
                   <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:ent?.color,marginLeft:8,flexShrink:0}}>{clp(exp.monto_total)}</div>
                 </div>
                 {exp.rut_comercio&&<div style={{fontSize:11,color:"#aaa",marginBottom:3}}>RUT: {exp.rut_comercio}</div>}
@@ -1285,7 +1285,7 @@ Total: $${total.toLocaleString("es-CL")}
               <div key={exp.id} style={{...S.card,borderLeft:`4px solid ${entity.color}`}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                   <div style={{flex:1}}>
-                    <div style={S.cardTitle}>{exp.comercio||"Sin nombre"}</div>
+                    <div style={S.cardTitle}>{exp.categoria||"Sin categoría"}{exp.comercio?` · ${exp.comercio}`:""}</div>
                     <div style={{fontSize:12,color:"#888",marginTop:2}}>💳 <strong>{payer?.nombre||payer?.email||"?"}</strong></div>
                     {parts.length>0 && <div style={{fontSize:11,color:"#aaa",marginTop:2}}>👥 {parts.length} personas · {clp(Math.round((exp.monto_total||0)/Math.max(parts.length,1)))} c/u</div>}
                     <div style={{display:"flex",gap:5,margin:"4px 0"}}><Badge color="#666">{exp.categoria}</Badge></div>
@@ -1360,15 +1360,7 @@ Total: $${total.toLocaleString("es-CL")}
       {/* SPLIT TAB */}
       {tab==="split" && (
         <div>
-          {/* Invite */}
-          <div style={{background:"#f0f7ff",border:"1px solid #bee3f8",borderRadius:12,padding:"12px 14px",marginBottom:16}}>
-            <div style={{fontWeight:700,fontSize:13,color:"#1a5276",marginBottom:6}}>🔗 Link de invitación</div>
-            <div style={{fontSize:11,color:"#555",marginBottom:8,wordBreak:"break-all"}}>{inviteUrl}</div>
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>{navigator.clipboard.writeText(inviteUrl);alert("¡Copiado!");}} style={{background:"#1a5276",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>Copiar</button>
-              <button onClick={()=>window.open("https://wa.me/?text="+encodeURIComponent("Unite al grupo: "+inviteUrl),"_blank")} style={{background:"#25D366",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>WA</button>
-            </div>
-          </div>
+
 
           {/* Totals */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
@@ -1552,7 +1544,7 @@ function EntityExpensesScreen({entity,expenses,categories,entities,nav,onDelete,
             {exp.image_url&&<img src={exp.image_url} alt="" style={{width:56,height:56,objectFit:"cover",borderRadius:8,flexShrink:0}}/>}
             <div style={{flex:1,minWidth:0}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                <div style={S.cardTitle}>{exp.comercio||"Sin nombre"}</div>
+                <div style={S.cardTitle}>{exp.categoria||"Sin categoría"}{exp.comercio?` · ${exp.comercio}`:""}</div>
                 <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:entity.color,marginLeft:8,flexShrink:0}}>{clp(exp.monto_total)}</div>
               </div>
               {exp.rut_comercio&&<div style={{fontSize:11,color:"#aaa"}}>RUT: {exp.rut_comercio}</div>}
@@ -1644,9 +1636,12 @@ export default function App() {
   };
 
   const getUnseenCount=(entityId)=>{
+    const uid=user?.id;
+    if(!uid) return 0;
     const last=lastSeen[entityId];
-    if(!last) return expenses.filter(e=>e.entity_id===entityId&&e.user_id!==user?.id).length;
-    return expenses.filter(e=>e.entity_id===entityId&&e.user_id!==user?.id&&new Date(e.created_at)>new Date(last)).length;
+    const filtered=expenses.filter(e=>e.entity_id===entityId&&e.user_id!==uid);
+    if(!last) return 0; // Don't show as new until first visit
+    return filtered.filter(e=>new Date(e.created_at)>new Date(last)).length;
   };
 
   const totalUnseen=entities.reduce((s,e)=>s+getUnseenCount(e.id),0);
@@ -1687,6 +1682,12 @@ export default function App() {
       allEntities=[...allEntities,...(mEnts||[]).filter(e=>!allEntities.find(x=>x.id===e.id))];
     }
     setEntities(allEntities);
+    // Load custom categories
+    const {data:customCats}=await supabase.from("categories").select("label").eq("user_id",u.id);
+    if(customCats&&customCats.length>0){
+      const customLabels=customCats.map(c=>c.label).filter(l=>!DEFAULT_CATEGORIES.includes(l));
+      if(customLabels.length>0) setCategories([...DEFAULT_CATEGORIES,...customLabels]);
+    }
     // Load expenses
     const entityIds=allEntities.map(e=>e.id);
     if(entityIds.length>0){
@@ -1698,8 +1699,19 @@ export default function App() {
 
   const dispatch = useCallback(action=>{
     switch(action.type){
-      case "ADD_CATEGORY":    setCategories(c=>[...c,action.payload]); break;
-      case "REMOVE_CATEGORY": setCategories(c=>c.filter(x=>x!==action.payload)); break;
+      case "ADD_CATEGORY":
+        setCategories(c=>[...c,action.payload]);
+        // Save to Supabase for persistence
+        supabase.auth.getUser().then(({data:{user:u}})=>{
+          if(u) supabase.from("categories").insert({user_id:u.id,label:action.payload}).then(()=>{});
+        });
+        break;
+      case "REMOVE_CATEGORY":
+        setCategories(c=>c.filter(x=>x!==action.payload));
+        supabase.auth.getUser().then(({data:{user:u}})=>{
+          if(u) supabase.from("categories").delete().eq("user_id",u.id).eq("label",action.payload).then(()=>{});
+        });
+        break;
       case "ADD_ENTITY":      setEntities(e=>[...e,action.payload]); break;
       case "REMOVE_ENTITY":   setEntities(e=>e.filter(x=>x.id!==action.payload)); break;
     }
