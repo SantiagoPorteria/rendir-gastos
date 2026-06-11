@@ -7,6 +7,12 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
+// Guest session (for temporary group members)
+const GUEST_SESSION_KEY = "rendir_guest_session";
+function getGuestSession() { try { return JSON.parse(localStorage.getItem(GUEST_SESSION_KEY)||"null"); } catch { return null; } }
+function setGuestSession(data) { localStorage.setItem(GUEST_SESSION_KEY, JSON.stringify(data)); }
+function clearGuestSession() { localStorage.removeItem(GUEST_SESSION_KEY); }
+
 const PALETTE = ["#1a5276","#1a7a4a","#7d3c98","#b7770d","#c0392b","#2e86c1","#17a589","#d35400","#839192","#2c3e50"];
 const MONTH_NAMES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const DEFAULT_CATEGORIES = ["Bencina","Almuerzos","Cafetería","Gastos Oficina","Peajes","Estacionamientos","Supermercado","Restaurantes","Clientes","Merchandising","Eventos","Otro"];
@@ -74,6 +80,53 @@ function Spinner({text="Cargando…"}) {
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"60vh",gap:16}}>
       <div style={S.spinner}/>
       <div style={{fontSize:14,color:"#888"}}>{text}</div>
+    </div>
+  );
+}
+
+// ─── GUEST SELECT SCREEN ────────────────────────────────────────────────────
+function GuestSelectScreen({entity, onSelect}) {
+  const [guests,setGuests] = useState([]);
+  const [loading,setLoading] = useState(true);
+
+  useEffect(()=>{
+    if(!entity) return;
+    supabase.from("group_guests").select("*").eq("entity_id",entity.id).order("nombre").then(({data})=>{
+      setGuests(data||[]);
+      setLoading(false);
+    });
+  },[entity?.id]);
+
+  if(loading) return <Spinner text="Cargando participantes..."/>;
+
+  return (
+    <div style={{minHeight:"100vh",background:"#f7f5f0",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:400,boxShadow:"0 4px 24px rgba(0,0,0,.08)"}}>
+        <div style={{textAlign:"center",marginBottom:24}}>
+          <div style={{fontSize:48,marginBottom:8}}>{entity?.icon||"👥"}</div>
+          <div style={{fontFamily:"'Georgia',serif",fontSize:22,fontWeight:700}}>{entity?.label}</div>
+          <div style={{fontSize:14,color:"#888",marginTop:6}}>¿Quién eres?</div>
+        </div>
+
+        {guests.length===0 ? (
+          <div style={{textAlign:"center",color:"#bbb",padding:"20px 0"}}>
+            <div style={{fontSize:36,marginBottom:8}}>😕</div>
+            <div>No hay participantes en este grupo todavía.</div>
+            <div style={{fontSize:12,marginTop:6}}>Pídele al organizador que te agregue.</div>
+          </div>
+        ) : (
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {guests.map(g=>(
+              <button key={g.id} onClick={()=>onSelect(g)}
+                style={{padding:"14px 18px",borderRadius:12,border:"2px solid #e0e0e0",background:"#fff",cursor:"pointer",fontFamily:"inherit",fontSize:16,fontWeight:700,color:"#333",textAlign:"left",transition:"all .15s"}}
+                onMouseEnter={e=>e.target.style.borderColor="#1a5276"}
+                onMouseLeave={e=>e.target.style.borderColor="#e0e0e0"}>
+                👤 {g.nombre}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -782,6 +835,54 @@ function ReportScreen({entities,expenses,categories,nav,initParams,onDelete,onUp
   );
 }
 
+// ─── GUEST MANAGER INLINE ────────────────────────────────────────────────────
+function GuestManagerInline({entityId}) {
+  const [guests,setGuests] = useState([]);
+  const [newName,setNewName] = useState("");
+  const [loading,setLoading] = useState(true);
+
+  useEffect(()=>{
+    supabase.from("group_guests").select("*").eq("entity_id",entityId).order("nombre").then(({data})=>{
+      setGuests(data||[]);
+      setLoading(false);
+    });
+  },[entityId]);
+
+  const addGuest = async () => {
+    if(!newName.trim()) return;
+    const {data,error} = await supabase.from("group_guests").insert({entity_id:entityId,nombre:newName.trim()}).select().single();
+    if(!error&&data){ setGuests(g=>[...g,data]); setNewName(""); }
+  };
+
+  const removeGuest = async (id) => {
+    await supabase.from("group_guests").delete().eq("id",id);
+    setGuests(g=>g.filter(x=>x.id!==id));
+  };
+
+  if(loading) return <div style={{fontSize:12,color:"#aaa",padding:"8px 0"}}>Cargando...</div>;
+
+  return (
+    <div style={{marginTop:10,paddingTop:10,borderTop:"1px dashed #e0e0e0"}}>
+      <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>
+        👤 Participantes sin cuenta
+      </div>
+      {guests.map(g=>(
+        <div key={g.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #f8f8f8"}}>
+          <div style={{fontWeight:600,fontSize:13}}>👤 {g.nombre}</div>
+          <button onClick={()=>removeGuest(g.id)} style={{background:"#fde8e8",color:"#b00020",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>Eliminar</button>
+        </div>
+      ))}
+      <div style={{display:"flex",gap:8,marginTop:8}}>
+        <input style={{flex:1,border:"1.5px solid #e0e0e0",borderRadius:8,padding:"8px 12px",fontSize:13,fontFamily:"inherit"}}
+          value={newName} onChange={e=>setNewName(e.target.value)}
+          placeholder="Nombre del participante..."
+          onKeyDown={e=>e.key==="Enter"&&addGuest()}/>
+        <button onClick={addGuest} style={{background:"#1a5276",color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontWeight:700,fontSize:13,fontFamily:"inherit"}}>+</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── ADMIN SCREEN ─────────────────────────────────────────────────────────────
 function AdminScreen({entities,nav}) {
   const [users,setUsers]=useState([]);
@@ -868,12 +969,13 @@ function AdminScreen({entities,nav}) {
                 <div style={{fontWeight:700,fontSize:15,color:ent.color}}>{ent.label}</div>
                 <div style={{marginLeft:"auto",fontSize:12,color:"#aaa"}}>{(groupMembers[ent.id]||[]).length} miembros</div>
               </div>
+              {/* Registered users */}
               {users.filter(u=>u.id!==ent.owner_id).map(user=>{
                 const hasAccess=(groupMembers[ent.id]||[]).includes(user.id);
                 return (
                   <div key={user.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #f8f8f8"}}>
                     <div>
-                      <div style={{fontWeight:600,fontSize:13}}>{user.nombre||"Sin nombre"}</div>
+                      <div style={{fontWeight:600,fontSize:13}}>{user.nombre||"Sin nombre"} <span style={{fontSize:10,color:"#aaa"}}>cuenta</span></div>
                       <div style={{fontSize:11,color:"#aaa"}}>{user.email}</div>
                     </div>
                     <button onClick={()=>toggleGroupAccess(user.id,ent.id,hasAccess)}
@@ -883,6 +985,8 @@ function AdminScreen({entities,nav}) {
                   </div>
                 );
               })}
+              {/* Guest participants */}
+              <GuestManagerInline entityId={ent.id}/>
             </div>
           ))}
         </div>
@@ -1719,8 +1823,48 @@ export default function App() {
 
   const signOut = async () => { await supabase.auth.signOut(); setUser(null); setProfile(null); setEntities([]); setExpenses([]); };
 
-  // Show invite screen before auth if token present
-  if(inviteToken && (loading || !user)) return (
+  // Guest session check
+  const [guestSession,setGuestSessionState] = useState(()=>getGuestSession());
+  const [guestEntity,setGuestEntity] = useState(null);
+  const [showGuestSelect,setShowGuestSelect] = useState(false);
+
+  // Check if URL has invite token and entity has guests
+  useEffect(()=>{
+    if(!inviteToken) return;
+    supabase.from("entities").select("*").eq("invite_token",inviteToken).single().then(({data:ent})=>{
+      if(!ent) return;
+      // Check if entity has guest participants
+      supabase.from("group_guests").select("id").eq("entity_id",ent.id).then(({data:guests})=>{
+        if(guests&&guests.length>0){
+          setGuestEntity(ent);
+          // Check if already selected a guest
+          const session=getGuestSession();
+          if(!session||session.entity_id!==ent.id) setShowGuestSelect(true);
+        }
+      });
+    });
+  },[inviteToken]);
+
+  const handleGuestSelect=(guest)=>{
+    const session={guest_id:guest.id,guest_name:guest.nombre,entity_id:guest.entity_id};
+    setGuestSession(session);
+    setGuestSessionState(session);
+    setShowGuestSelect(false);
+    // Navigate to group split
+    setScreen("groupSplit");
+    setParams({entityId:guest.entity_id});
+  };
+
+  // Show guest select screen
+  if(showGuestSelect && guestEntity) return (
+    <div style={{fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",background:"#f7f5f0",minHeight:"100vh"}}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0;}@keyframes spin{to{transform:rotate(360deg);}}`}</style>
+      <GuestSelectScreen entity={guestEntity} onSelect={handleGuestSelect}/>
+    </div>
+  );
+
+  // Show invite screen before auth if token present (for non-guest groups)
+  if(inviteToken && !guestEntity && (loading || !user)) return (
     <div style={{fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",background:"#f7f5f0",minHeight:"100vh"}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0;}input:focus{outline:2px solid #1a5276;outline-offset:1px;}@keyframes spin{to{transform:rotate(360deg);}}`}</style>
       <InviteScreen nav={nav} token={inviteToken}/>
