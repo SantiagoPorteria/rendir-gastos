@@ -16,7 +16,7 @@ function clearGuestSession() { localStorage.removeItem(GUEST_SESSION_KEY); }
 const PALETTE = ["#1a5276","#1a7a4a","#7d3c98","#b7770d","#c0392b","#2e86c1","#17a589","#d35400","#839192","#2c3e50"];
 const MONTH_NAMES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const DEFAULT_CATEGORIES = ["Bencina","Almuerzos","Cafetería","Gastos Oficina","Peajes","Estacionamientos","Supermercado","Restaurantes","Clientes","Merchandising","Eventos","Otro"];
-const ENTITY_ICONS = ["🏢","🏗️","🏠","🚗","✈️","🎉","🤝","💼","🏪","⚽","🎨","📦"];
+const ENTITY_ICONS = ["🏢","🏗️","🏠","🚗","✈️","🎉","🤝","💼","🏪","⚽","🎨","📦","🥩","🍺","⛳","🧳","🎯","🏖️","🎸","🍕","🏔️","🎲","🚢","🏕️","🎾","🏋️","🎂","🍻","🌴","💻","🏊"];
 
 const ENTITY_LOGOS = {
   "porteria":  "https://logxraqrwfqfoxtfbcxk.supabase.co/storage/v1/object/public/Logos/porteria-icon.png",
@@ -1590,6 +1590,43 @@ function EntityExpensesScreen({entity,expenses,categories,entities,nav,onDelete,
   const allMonths=[...new Set(entityExpenses.map(e=>e.fecha?.slice(0,7)).filter(Boolean))].sort().reverse();
   const filtered=filterMonth==="all"?entityExpenses:entityExpenses.filter(e=>e.fecha?.startsWith(filterMonth));
   const total=filtered.reduce((s,x)=>s+(x.monto_total||0),0);
+  const totalNeto=filtered.reduce((s,x)=>s+(x.monto_neto||0),0);
+  const totalIva=filtered.reduce((s,x)=>s+(x.iva||0),0);
+
+  // Category breakdown for pie chart
+  const catData=categories.map(cat=>{
+    const exps=filtered.filter(e=>e.categoria===cat);
+    const catTotal=exps.reduce((s,x)=>s+(x.monto_total||0),0);
+    return {cat,total:catTotal,count:exps.length};
+  }).filter(x=>x.count>0).sort((a,b)=>b.total-a.total);
+
+  const PIE_COLORS=["#1a5276","#1a7a4a","#7d3c98","#b7770d","#c0392b","#2e86c1","#17a589","#d35400","#839192","#2c3e50","#e91e63","#00bcd4"];
+
+  // Simple SVG pie chart
+  const PieChart=({data,total})=>{
+    if(total===0||data.length===0) return null;
+    let cumAngle=0;
+    const cx=100,cy=100,r=80;
+    const paths=data.map((item,i)=>{
+      const pct=item.total/total;
+      const angle=pct*2*Math.PI;
+      const x1=cx+r*Math.sin(cumAngle);
+      const y1=cy-r*Math.cos(cumAngle);
+      cumAngle+=angle;
+      const x2=cx+r*Math.sin(cumAngle);
+      const y2=cy-r*Math.cos(cumAngle);
+      const large=angle>Math.PI?1:0;
+      return <path key={i} d={`M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z`} fill={PIE_COLORS[i%PIE_COLORS.length]}/>;
+    });
+    return (
+      <svg viewBox="0 0 200 200" style={{width:"100%",maxWidth:200}}>
+        {paths}
+        <circle cx={cx} cy={cy} r={40} fill="#fff"/>
+        <text x={cx} y={cy-8} textAnchor="middle" style={{fontSize:11,fill:"#888"}}>Total</text>
+        <text x={cx} y={cy+10} textAnchor="middle" style={{fontSize:10,fill:"#1a5276",fontWeight:"bold"}}>{`$${Math.round(total/1000)}k`}</text>
+      </svg>
+    );
+  };
 
   const startEdit=(exp)=>{
     setEditing(exp.id);
@@ -1628,22 +1665,9 @@ function EntityExpensesScreen({entity,expenses,categories,entities,nav,onDelete,
         <button onClick={()=>nav("capture")} style={{background:"#1a5276",color:"#fff",border:"none",borderRadius:9,padding:"7px 12px",cursor:"pointer",fontWeight:700,fontSize:13,fontFamily:"inherit"}}>+ Gasto</button>
       }/>
 
-      {/* Entity icon and total */}
-      <div style={{display:"flex",alignItems:"center",gap:12,padding:"4px 0 16px",borderBottom:"1px solid #eee",marginBottom:16}}>
-        <EntityIcon entity={entity} size={40}/>
-        <div>
-          <div style={{fontSize:12,color:"#aaa"}}>Total gastos</div>
-          <div style={{fontFamily:"'Georgia',serif",fontSize:22,fontWeight:700,color:entity.color}}>{clp(total)}</div>
-        </div>
-        <div style={{marginLeft:"auto",textAlign:"right"}}>
-          <div style={{fontSize:12,color:"#aaa"}}>{filtered.length} gasto{filtered.length!==1?"s":""}</div>
-        </div>
-      </div>
-
       {/* Month filter */}
       {allMonths.length>1&&(
         <div style={{marginBottom:14}}>
-          <div style={S.label}>Período</div>
           <select style={S.input} value={filterMonth} onChange={e=>setFilterMonth(e.target.value)}>
             <option value="all">Todos los meses</option>
             {allMonths.map(m=><option key={m} value={m}>{ym2label(m)}</option>)}
@@ -1651,6 +1675,63 @@ function EntityExpensesScreen({entity,expenses,categories,entities,nav,onDelete,
         </div>
       )}
 
+      {/* TOTAL */}
+      <div style={{background:entity.color,borderRadius:16,padding:"20px",marginBottom:16,color:"#fff"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+          <EntityIcon entity={entity} size={36}/>
+          <div>
+            <div style={{fontSize:12,opacity:0.8}}>Total gastado</div>
+            <div style={{fontFamily:"'Georgia',serif",fontSize:28,fontWeight:700}}>{clp(total)}</div>
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          <div style={{background:"rgba(255,255,255,.15)",borderRadius:10,padding:"10px 12px"}}>
+            <div style={{fontSize:11,opacity:0.8,marginBottom:2}}>Neto</div>
+            <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16}}>{clp(totalNeto)}</div>
+          </div>
+          <div style={{background:"rgba(255,255,255,.15)",borderRadius:10,padding:"10px 12px"}}>
+            <div style={{fontSize:11,opacity:0.8,marginBottom:2}}>IVA</div>
+            <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16}}>{clp(totalIva)}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* PIE CHART + TABLE */}
+      {catData.length>0&&(
+        <div style={{background:"#fff",borderRadius:16,padding:"16px",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+          <div style={S.sectionLabel}>Por categoría</div>
+          <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:12}}>
+            <div style={{width:140,flexShrink:0}}>
+              <PieChart data={catData} total={total}/>
+            </div>
+            <div style={{flex:1,minWidth:0}}>
+              {catData.slice(0,5).map((c,i)=>(
+                <div key={c.cat} style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                  <div style={{width:10,height:10,borderRadius:2,background:PIE_COLORS[i%PIE_COLORS.length],flexShrink:0}}/>
+                  <div style={{fontSize:11,color:"#555",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.cat}</div>
+                  <div style={{fontSize:11,fontWeight:700,color:"#333",flexShrink:0}}>{Math.round(c.total/total*100)}%</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Full category table */}
+          <div style={{borderTop:"1px solid #f0f0f0",paddingTop:10}}>
+            {catData.map((c,i)=>(
+              <div key={c.cat} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid #f8f8f8"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{width:10,height:10,borderRadius:2,background:PIE_COLORS[i%PIE_COLORS.length]}}/>
+                  <span style={{fontSize:13,color:"#333"}}>{c.cat}</span>
+                  <span style={{fontSize:11,color:"#bbb"}}>({c.count})</span>
+                </div>
+                <span style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:14}}>{clp(c.total)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* EXPENSE LIST */}
+      <div style={S.sectionLabel}>Detalle de gastos ({filtered.length})</div>
       {filtered.length===0&&(
         <div style={S.empty}>
           <div style={{fontSize:48}}>📋</div>
@@ -1659,80 +1740,87 @@ function EntityExpensesScreen({entity,expenses,categories,entities,nav,onDelete,
         </div>
       )}
 
-      {[...filtered].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(exp=>(
-        <div key={exp.id} style={{...S.card,borderLeft:`4px solid ${entity.color}`}}>
-          <div style={{display:"flex",gap:10}}>
-            {exp.image_url&&<img src={exp.image_url} alt="" style={{width:56,height:56,objectFit:"cover",borderRadius:8,flexShrink:0}}/>}
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                <div style={S.cardTitle}>{exp.categoria||"Sin categoría"}{exp.comercio?` · ${exp.comercio}`:""}</div>
-                <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:entity.color,marginLeft:8,flexShrink:0}}>{clp(exp.monto_total)}</div>
-              </div>
-              {exp.rut_comercio&&<div style={{fontSize:11,color:"#aaa"}}>RUT: {exp.rut_comercio}</div>}
-              <div style={{display:"flex",gap:5,flexWrap:"wrap",margin:"4px 0"}}>
-                <Badge color="#666">{exp.categoria}</Badge>
-                {exp.tipo_documento&&<Badge color="#999">{exp.tipo_documento}{exp.numero_documento?` N°${exp.numero_documento}`:""}</Badge>}
-              </div>
-              {exp.descripcion&&<div style={S.desc}>{exp.descripcion}</div>}
-              {exp.nota&&<div style={{...S.desc,color:"#bbb"}}>📝 {exp.nota}</div>}
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
-                <div style={S.meta}>{iso2d(exp.fecha)}{exp.iva>0?` · IVA ${clp(exp.iva)}`:""}</div>
-                <div style={{display:"flex",gap:4}}>
-                  <button onClick={()=>{editing===exp.id?setEditing(null):startEdit(exp);}} 
-                    style={{background:editing===exp.id?"#e8f0fe":"none",border:"none",color:"#1a5276",cursor:"pointer",fontSize:14,padding:"3px 6px",borderRadius:6}}>✏️</button>
-                  <button onClick={()=>setDeleting(exp.id)} 
-                    style={{background:"none",border:"none",color:"#ddd",cursor:"pointer",fontSize:14,padding:"3px 6px"}}>🗑️</button>
+      {[...filtered].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(exp=>{
+        const catIdx=catData.findIndex(c=>c.cat===exp.categoria);
+        const catColor=catIdx>=0?PIE_COLORS[catIdx%PIE_COLORS.length]:entity.color;
+        return (
+          <div key={exp.id} style={{...S.card,borderLeft:`4px solid ${catColor}`}}>
+            <div style={{display:"flex",gap:10}}>
+              {exp.image_url&&<img src={exp.image_url} alt="" style={{width:52,height:52,objectFit:"cover",borderRadius:8,flexShrink:0}}/>}
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                  <div>
+                    <div style={S.cardTitle}>{exp.categoria||"Sin categoría"}</div>
+                    {exp.comercio&&<div style={{fontSize:12,color:"#888",marginTop:1}}>{exp.comercio}</div>}
+                  </div>
+                  <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:catColor,marginLeft:8,flexShrink:0}}>{clp(exp.monto_total)}</div>
+                </div>
+                {exp.rut_comercio&&<div style={{fontSize:11,color:"#aaa"}}>RUT: {exp.rut_comercio}</div>}
+                <div style={{display:"flex",gap:5,flexWrap:"wrap",margin:"4px 0"}}>
+                  {exp.tipo_documento&&<Badge color="#999">{exp.tipo_documento}{exp.numero_documento?` N°${exp.numero_documento}`:""}</Badge>}
+                </div>
+                {exp.descripcion&&<div style={S.desc}>{exp.descripcion}</div>}
+                {exp.nota&&<div style={{...S.desc,color:"#bbb"}}>📝 {exp.nota}</div>}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
+                  <div style={S.meta}>{iso2d(exp.fecha)}{exp.iva>0?` · IVA ${clp(exp.iva)}`:""}</div>
+                  <div style={{display:"flex",gap:4}}>
+                    <button onClick={()=>{editing===exp.id?setEditing(null):startEdit(exp);}}
+                      style={{background:editing===exp.id?"#e8f0fe":"none",border:"none",color:"#1a5276",cursor:"pointer",fontSize:14,padding:"3px 6px",borderRadius:6}}>✏️</button>
+                    <button onClick={()=>setDeleting(exp.id)}
+                      style={{background:"none",border:"none",color:"#ddd",cursor:"pointer",fontSize:14,padding:"3px 6px"}}>🗑️</button>
+                  </div>
                 </div>
               </div>
             </div>
+
+            {/* EDIT FORM */}
+            {editing===exp.id&&(
+              <div style={{background:"#f8f9fa",borderRadius:10,padding:"12px",marginTop:10,borderTop:`2px solid ${entity.color}`}}>
+                <div style={{fontWeight:700,fontSize:13,marginBottom:10,color:entity.color}}>✏️ Editar gasto</div>
+                <div style={{display:"flex",gap:8,marginBottom:8}}>
+                  <div style={{flex:2}}><div style={S.label}>Comercio</div><input style={S.input} value={editForm.comercio} onChange={updEdit("comercio")} placeholder="Comercio..."/></div>
+                  <div style={{flex:1}}><div style={S.label}>Tipo doc</div><select style={S.input} value={editForm.tipo_documento} onChange={updEdit("tipo_documento")}>{["boleta","factura","ticket","recibo","otro"].map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+                </div>
+                <div style={{marginBottom:8}}><div style={S.label}>RUT comercio</div><input style={S.input} value={editForm.rut_comercio} onChange={updEdit("rut_comercio")} placeholder="76.123.456-7"/></div>
+                <div style={{display:"flex",gap:8,marginBottom:8}}>
+                  <div style={{flex:1}}><div style={S.label}>Neto</div><input style={S.input} type="number" value={editForm.monto_neto} onChange={e=>{const n=parseInt(e.target.value)||0;setEditForm(f=>({...f,monto_neto:e.target.value,iva:Math.round(n*0.19)||"",monto_total:Math.round(n*1.19)||""}));}}/></div>
+                  <div style={{flex:1}}><div style={S.label}>IVA</div><input style={S.input} type="number" value={editForm.iva} onChange={updEdit("iva")}/></div>
+                </div>
+                <div style={{marginBottom:8}}><div style={S.label}>Total *</div><input style={{...S.input,fontWeight:700,fontSize:16}} type="number" value={editForm.monto_total} onChange={updEdit("monto_total")}/></div>
+                <div style={{display:"flex",gap:8,marginBottom:8}}>
+                  <div style={{flex:1}}><div style={S.label}>Fecha</div><input style={S.input} type="date" value={editForm.fecha} onChange={updEdit("fecha")}/></div>
+                  <div style={{flex:1}}><div style={S.label}>Categoría</div><select style={S.input} value={editForm.categoria} onChange={updEdit("categoria")}>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+                </div>
+                <div style={{marginBottom:8}}><div style={S.label}>Descripción</div><input style={S.input} value={editForm.descripcion} onChange={updEdit("descripcion")}/></div>
+                <div style={{marginBottom:12}}><div style={S.label}>Nota</div><textarea style={{...S.input,height:56,resize:"none"}} value={editForm.nota} onChange={updEdit("nota")}/></div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>saveEdit(exp.id)} disabled={saving} style={{flex:1,background:entity.color,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontWeight:700,cursor:"pointer",fontSize:14,fontFamily:"inherit",opacity:saving?0.6:1}}>
+                    {saving?"Guardando...":"💾 Guardar"}
+                  </button>
+                  <button onClick={()=>setEditing(null)} style={{flex:1,background:"#f0f0f0",border:"none",borderRadius:10,padding:"12px",fontWeight:700,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* DELETE */}
+            {deleting===exp.id&&(
+              <div style={{background:"#fde8e8",borderRadius:8,padding:"12px",marginTop:8,display:"flex",gap:8,alignItems:"center"}}>
+                <span style={{fontSize:13,color:"#b00020",flex:1}}>¿Eliminar este gasto?</span>
+                <button onClick={async()=>{await supabase.from("expenses").delete().eq("id",exp.id);onDelete(exp.id);setDeleting(null);}}
+                  style={{background:"#b00020",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>Eliminar</button>
+                <button onClick={()=>setDeleting(null)} style={{background:"#eee",border:"none",borderRadius:6,padding:"6px 12px",cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>Cancelar</button>
+              </div>
+            )}
           </div>
-
-          {/* EDIT FORM */}
-          {editing===exp.id&&(
-            <div style={{background:"#f8f9fa",borderRadius:10,padding:"14px",marginTop:10,borderTop:"2px solid #1a5276"}}>
-              <div style={{fontWeight:700,fontSize:13,marginBottom:12,color:"#1a5276"}}>✏️ Editar gasto</div>
-              <div style={{display:"flex",gap:8,marginBottom:10}}>
-                <div style={{flex:2}}><div style={S.label}>Comercio</div><input style={S.input} value={editForm.comercio} onChange={updEdit("comercio")} placeholder="Comercio..."/></div>
-                <div style={{flex:1}}><div style={S.label}>Tipo doc</div><select style={S.input} value={editForm.tipo_documento} onChange={updEdit("tipo_documento")}>{["boleta","factura","ticket","recibo","otro"].map(t=><option key={t} value={t}>{t}</option>)}</select></div>
-              </div>
-              <div style={{marginBottom:10}}><div style={S.label}>RUT comercio</div><input style={S.input} value={editForm.rut_comercio} onChange={updEdit("rut_comercio")} placeholder="76.123.456-7"/></div>
-              <div style={{display:"flex",gap:8,marginBottom:10}}>
-                <div style={{flex:1}}><div style={S.label}>Neto</div><input style={S.input} type="number" value={editForm.monto_neto} onChange={e=>{const n=parseInt(e.target.value)||0;setEditForm(f=>({...f,monto_neto:e.target.value,iva:Math.round(n*0.19)||"",monto_total:Math.round(n*1.19)||""}));}}/></div>
-                <div style={{flex:1}}><div style={S.label}>IVA</div><input style={S.input} type="number" value={editForm.iva} onChange={e=>{const iva=parseInt(e.target.value)||0;const neto=parseInt(String(editForm.monto_neto))||0;setEditForm(f=>({...f,iva:e.target.value,monto_total:neto+iva||""}));}}/></div>
-              </div>
-              <div style={{marginBottom:10}}><div style={S.label}>Monto total *</div><input style={{...S.input,fontWeight:700,fontSize:16}} type="number" value={editForm.monto_total} onChange={updEdit("monto_total")}/></div>
-              <div style={{display:"flex",gap:8,marginBottom:10}}>
-                <div style={{flex:1}}><div style={S.label}>Fecha</div><input style={S.input} type="date" value={editForm.fecha} onChange={updEdit("fecha")}/></div>
-                <div style={{flex:1}}><div style={S.label}>Categoría</div><select style={S.input} value={editForm.categoria} onChange={updEdit("categoria")}>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
-              </div>
-              <div style={{marginBottom:10}}><div style={S.label}>Descripción</div><input style={S.input} value={editForm.descripcion} onChange={updEdit("descripcion")} placeholder="Breve descripción..."/></div>
-              <div style={{marginBottom:12}}><div style={S.label}>Nota</div><textarea style={{...S.input,height:56,resize:"none"}} value={editForm.nota} onChange={updEdit("nota")} placeholder="Nota para el contador..."/></div>
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>saveEdit(exp.id)} disabled={saving} style={{flex:1,background:"#1a5276",color:"#fff",border:"none",borderRadius:10,padding:"12px",fontWeight:700,cursor:"pointer",fontSize:14,fontFamily:"inherit",opacity:saving?0.6:1}}>
-                  {saving?"Guardando...":"💾 Guardar cambios"}
-                </button>
-                <button onClick={()=>setEditing(null)} style={{flex:1,background:"#f0f0f0",border:"none",borderRadius:10,padding:"12px",fontWeight:700,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* DELETE CONFIRM */}
-          {deleting===exp.id&&(
-            <div style={{background:"#fde8e8",borderRadius:8,padding:"12px",marginTop:8,display:"flex",gap:8,alignItems:"center"}}>
-              <span style={{fontSize:13,color:"#b00020",flex:1}}>¿Eliminar este gasto?</span>
-              <button onClick={async()=>{await supabase.from("expenses").delete().eq("id",exp.id);onDelete(exp.id);setDeleting(null);}}
-                style={{background:"#b00020",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>Eliminar</button>
-              <button onClick={()=>setDeleting(null)} style={{background:"#eee",border:"none",borderRadius:6,padding:"6px 12px",cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>Cancelar</button>
-            </div>
-          )}
-        </div>
-      ))}
+        );
+      })}
       <div style={{height:40}}/>
     </div>
   );
 }
+
 
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
