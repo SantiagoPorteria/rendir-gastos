@@ -1555,7 +1555,7 @@ Total: $${total.toLocaleString("es-CL")}
                 style={{background:"#1a5276",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",flexShrink:0}}>
                 Copiar
               </button>
-              <button onClick={()=>window.open(`https://wa.me/?text=${encodeURIComponent("Únete al grupo: https://rendir-gastos-sli.vercel.app?invite=${entity.invite_token}")}` ,"_blank")}
+              <button onClick={()=>window.open(`https://wa.me/?text=${encodeURIComponent("Únete al grupo: "+inviteUrl)}`,"_blank")}
                 style={{background:"#25D366",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",flexShrink:0}}>
                 WA
               </button>
