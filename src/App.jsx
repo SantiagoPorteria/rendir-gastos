@@ -423,7 +423,7 @@ function NewEntityScreen({profile,nav,onCreated}) {
 }
 
 // ─── CAPTURE ──────────────────────────────────────────────────────────────────
-function CaptureScreen({entities,categories,nav,userId,onSaved}) {
+function CaptureScreen({entities,categories,nav,userId,onSaved,initEntityId,guestSession}) {
   const [step,setStep]=useState("choose");
   const [imgData,setImgData]=useState(null);
   const [mimeType,setMimeType]=useState("image/jpeg");
@@ -437,8 +437,9 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
   const [exchangeRate,setExchangeRate]=useState(1);
   const [loadingRate,setLoadingRate]=useState(false);
   const fileRef=useRef();
-  const blank={entity_id:"",comercio:"",rut_comercio:"",monto_total:"",monto_neto:"",iva:"",fecha:todayFn(),tipo_documento:"boleta",numero_documento:"",categoria:"Otro",descripcion:"",nota:""};
+  const blank={entity_id:initEntityId||"",comercio:"",rut_comercio:"",monto_total:"",monto_neto:"",iva:"",fecha:todayFn(),tipo_documento:"boleta",numero_documento:"",categoria:"Otro",descripcion:"",nota:""};
   const [form,setForm]=useState(blank);
+  const [manualMode,setManualMode]=useState(false); // true = simplified manual form
   const upd=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
 
   const handleCurrencyChange=async(code)=>{
@@ -453,22 +454,29 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
   // Load group members when entity changes
   const loadGroupMembers = async (entityId) => {
     const ent = entities.find(e=>e.id===entityId);
-    if(ent?.type!=="group"){
+    if(!ent){
       setGroupMembers([]);setParticipants([]);setPayer(userId);return;
     }
-    // Registered members
+    const isCurrentUserGuest = typeof userId==="string" && userId.startsWith("guest_");
+    // Registered members (works for global, personal, and group entities)
     const {data:members}=await supabase.from("entity_members").select("user_id").eq("entity_id",entityId);
-    const memberIds=[...new Set([...(members||[]).map(m=>m.user_id), ent.owner_id, userId])];
-    const {data:profiles}=await supabase.from("profiles").select("id,nombre,email").in("id",memberIds);
+    const realUserIds=[...new Set([...(members||[]).map(m=>m.user_id), ent.owner_id, ...(isCurrentUserGuest?[]:[userId])])];
+    const {data:profiles}=await supabase.from("profiles").select("id,nombre,email").in("id",realUserIds);
     const registered=(profiles||[]).filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i).map(p=>({id:p.id,nombre:p.nombre,email:p.email,isGuest:false}));
-    // Guest participants (no account)
+    // Guest participants (no account) - only relevant for groups but harmless elsewhere
     const {data:guests}=await supabase.from("group_guests").select("*").eq("entity_id",entityId);
     const guestList=(guests||[]).map(g=>({id:"guest_"+g.id,nombre:g.nombre,email:null,isGuest:true}));
     const all=[...registered,...guestList];
-    setGroupMembers(all);
+    // Only show payer/participant selectors if there's more than one person with access
+    setGroupMembers(all.length>1?all:[]);
     setParticipants(all.map(m=>m.id));
     setPayer(userId);
   };
+
+  // Auto-load entity if pre-selected (coming from an entity screen)
+  useEffect(()=>{
+    if(initEntityId && entities.length>0) loadGroupMembers(initEntityId);
+  },[initEntityId, entities.length]);
 
   const handleFile=file=>{
     if(!file)return;
@@ -546,8 +554,8 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
       moneda:moneda, monto_original:montoOriginal, tipo_cambio:exchangeRate,
     }).select().single();
     if(error){setErr(error.message);setSaving(false);return;}
-    // Save participants for group expenses (handle both registered users and guests)
-    if(participants.length>0 && data?.id) {
+    // Save participants only for group entities (split feature)
+    if(selectedEntity?.type==="group" && participants.length>0 && data?.id) {
       const participantRows = participants.map(pid=>{
         const isGuest = typeof pid === "string" && pid.startsWith("guest_");
         return isGuest
@@ -570,7 +578,7 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         <button style={S.btn} onClick={()=>fileRef.current.click()}>📸 Tomar foto / Subir imagen</button>
-        <button style={S.btnOut} onClick={()=>setStep("form")}>✏️ Ingresar manualmente</button>
+        <button style={S.btnOut} onClick={()=>{setManualMode(true);setStep("form");}}>✏️ Ingresar manualmente</button>
       </div>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
     </div>
@@ -581,8 +589,8 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
       <TopBar title="Comprobante" onBack={()=>setStep("choose")}/>
       <img src={imgData.url} alt="comprobante" style={{width:"100%",maxHeight:300,objectFit:"contain",borderRadius:12,background:"#eee",marginBottom:16}}/>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <button style={S.btn} onClick={analyze}>🤖 Analizar con IA</button>
-        <button style={S.btnOut} onClick={()=>setStep("form")}>✏️ Ingresar manualmente</button>
+        <button style={S.btn} onClick={()=>{setManualMode(false);analyze();}}>🤖 Analizar con IA</button>
+        <button style={S.btnOut} onClick={()=>{setManualMode(true);setStep("form");}}>✏️ Ingresar manualmente</button>
       </div>
     </div>
   );
@@ -596,78 +604,118 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
       {aiNote&&<div style={{borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13,fontWeight:600,background:aiNote==="alta"?"#e8f5e9":"#fff8e1",color:aiNote==="alta"?"#2e7d32":"#e65100"}}>{aiNote==="alta"?"✅":"⚠️"} Confianza {aiNote} — verificá antes de guardar.</div>}
       {err&&<div style={{background:"#fde8e8",color:"#b00020",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13,fontWeight:600}}>{err}</div>}
 
-      <div style={S.group}>
-        <div style={S.label}>¿A qué entidad corresponde? *</div>
-        <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {entities.map(e=>(
-            <button key={e.id} onClick={()=>{setForm(f=>({...f,entity_id:e.id}));loadGroupMembers(e.id);}}
-              style={{display:"flex",alignItems:"center",gap:12,padding:"13px 16px",borderRadius:12,border:`2px solid ${form.entity_id===e.id?e.color:"#e0e0e0"}`,background:form.entity_id===e.id?e.color+"15":"#fff",cursor:"pointer",fontFamily:"inherit"}}>
-              <EntityIcon entity={e} size={28}/>
-              <div style={{flex:1,textAlign:"left"}}>
-                <div style={{fontWeight:700,color:e.color,fontSize:14}}>{e.label}</div>
-                <div style={{fontSize:11,color:"#aaa"}}>{e.type==="group"?"Grupal":e.type==="global"?"Global":"Personal"}</div>
+      {/* Entity selector - only show if not pre-selected from entity screen */}
+      {!initEntityId&&entities.length>1&&(
+        <div style={S.group}>
+          <div style={S.label}>¿A qué entidad corresponde? *</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {entities.map(e=>(
+              <button key={e.id} onClick={()=>{setForm(f=>({...f,entity_id:e.id}));loadGroupMembers(e.id);}}
+                style={{display:"flex",alignItems:"center",gap:12,padding:"13px 16px",borderRadius:12,border:`2px solid ${form.entity_id===e.id?e.color:"#e0e0e0"}`,background:form.entity_id===e.id?e.color+"15":"#fff",cursor:"pointer",fontFamily:"inherit"}}>
+                <EntityIcon entity={e} size={28}/>
+                <div style={{flex:1,textAlign:"left"}}>
+                  <div style={{fontWeight:700,color:e.color,fontSize:14}}>{e.label}</div>
+                  <div style={{fontSize:11,color:"#aaa"}}>{e.type==="group"?"Grupal":e.type==="global"?"Global":"Personal"}</div>
+                </div>
+                {form.entity_id===e.id&&<span style={{color:e.color,fontWeight:700}}>✓</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* MANUAL MODE: simplified fields only */}
+      {manualMode ? (
+        <>
+          <div style={S.group}>
+            <div style={S.label}>Monto total * {moneda!=="CLP"&&`(${moneda})`}</div>
+            <input style={{...S.input,fontSize:18,fontWeight:700}} type="number" value={form.monto_total}
+              onChange={upd("monto_total")} placeholder="0"/>
+            {moneda!=="CLP"&&form.monto_total&&(
+              <div style={{background:"#f0f7ff",borderRadius:8,padding:"8px 12px",marginTop:8,fontSize:13,color:"#1a5276"}}>
+                Equivale a <strong>{clp(Math.round((parseInt(String(form.monto_total).replace(/[^0-9]/g,""))||0)*exchangeRate))}</strong> CLP
               </div>
-              {form.entity_id===e.id&&<span style={{color:e.color,fontWeight:700}}>✓</span>}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div style={S.row}>
-        <div style={{flex:1}}><div style={S.label}>Tipo doc</div><select style={S.input} value={form.tipo_documento} onChange={upd("tipo_documento")}>{["boleta","factura","ticket","recibo","otro"].map(t=><option key={t} value={t}>{t}</option>)}</select></div>
-        <div style={{flex:1}}><div style={S.label}>N° doc</div><input style={S.input} value={form.numero_documento} onChange={upd("numero_documento")} placeholder="00123456"/></div>
-      </div>
-      <div style={S.group}><div style={S.label}>Comercio</div><input style={S.input} value={form.comercio} onChange={upd("comercio")} placeholder="ej: Copec, Sodimac..."/></div>
-      <div style={S.group}><div style={S.label}>RUT comercio</div><input style={S.input} value={form.rut_comercio} onChange={upd("rut_comercio")} placeholder="ej: 76.123.456-7"/></div>
-
-      <div style={S.group}>
-        <div style={S.label}>Moneda</div>
-        <select style={S.input} value={moneda} onChange={e=>handleCurrencyChange(e.target.value)}>
-          {CURRENCIES.map(c=><option key={c.code} value={c.code}>{c.label} ({c.code})</option>)}
-        </select>
-        {moneda!=="CLP"&&(
-          <div style={{fontSize:12,color:"#888",marginTop:6}}>
-            {loadingRate?"Buscando tipo de cambio...":`1 ${moneda} = ${clp(exchangeRate)} (hoy)`}
+            )}
           </div>
-        )}
-      </div>
-
-      <div style={S.row}>
-        <div style={{flex:1}}>
-          <div style={S.label}>Neto ({moneda})</div>
-          <input style={S.input} type="number" value={form.monto_neto}
-            onChange={e=>{
-              const neto=parseInt(e.target.value)||0;
-              const iva=Math.round(neto*0.19);
-              const total=neto+iva;
-              setForm(f=>({...f,monto_neto:e.target.value,iva:iva||"",monto_total:total||""}));
-            }} placeholder="0"/>
-        </div>
-        <div style={{flex:1}}>
-          <div style={S.label}>IVA (19% auto)</div>
-          <input style={{...S.input,background:"#f9f9f9"}} type="number" value={form.iva}
-            onChange={e=>{
-              const iva=parseInt(e.target.value)||0;
-              const neto=parseInt(String(form.monto_neto))||0;
-              setForm(f=>({...f,iva:e.target.value,monto_total:(neto+iva)||""}));
-            }} placeholder="0"/>
-        </div>
-      </div>
-      <div style={S.group}>
-        <div style={S.label}>Monto total * {moneda!=="CLP"&&`(${moneda})`}</div>
-        <input style={{...S.input,fontSize:18,fontWeight:700}} type="number" value={form.monto_total}
-          onChange={upd("monto_total")} placeholder="0"/>
-        {form.monto_neto&&!form.iva&&<div style={{fontSize:11,color:"#aaa",marginTop:4}}>¿Sin IVA? El total es el mismo que el neto.</div>}
-        {moneda!=="CLP"&&form.monto_total&&(
-          <div style={{background:"#f0f7ff",borderRadius:8,padding:"8px 12px",marginTop:8,fontSize:13,color:"#1a5276"}}>
-            Equivale a <strong>{clp(Math.round((parseInt(String(form.monto_total).replace(/[^0-9]/g,""))||0)*exchangeRate))}</strong> CLP
+          <div style={S.group}>
+            <div style={S.label}>Categoría</div>
+            <select style={S.input} value={form.categoria} onChange={upd("categoria")}>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select>
           </div>
-        )}
-      </div>
-      <div style={S.row}>
-        <div style={{flex:1}}><div style={S.label}>Fecha</div><input style={S.input} type="date" value={form.fecha} onChange={upd("fecha")}/></div>
-        <div style={{flex:1}}><div style={S.label}>Categoría</div><select style={S.input} value={form.categoria} onChange={upd("categoria")}>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
-      </div>
+          <div style={S.group}>
+            <div style={S.label}>Moneda</div>
+            <select style={S.input} value={moneda} onChange={e=>handleCurrencyChange(e.target.value)}>
+              {CURRENCIES.map(c=><option key={c.code} value={c.code}>{c.label} ({c.code})</option>)}
+            </select>
+            {moneda!=="CLP"&&(
+              <div style={{fontSize:12,color:"#888",marginTop:6}}>
+                {loadingRate?"Buscando tipo de cambio...":`1 ${moneda} = ${clp(exchangeRate)} (hoy)`}
+              </div>
+            )}
+          </div>
+          <div style={S.group}>
+            <div style={S.label}>Descripción</div>
+            <input style={S.input} value={form.descripcion} onChange={upd("descripcion")} placeholder="Breve descripción..."/>
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={S.row}>
+            <div style={{flex:1}}><div style={S.label}>Tipo doc</div><select style={S.input} value={form.tipo_documento} onChange={upd("tipo_documento")}>{["boleta","factura","ticket","recibo","otro"].map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+            <div style={{flex:1}}><div style={S.label}>N° doc</div><input style={S.input} value={form.numero_documento} onChange={upd("numero_documento")} placeholder="00123456"/></div>
+          </div>
+          <div style={S.group}><div style={S.label}>Comercio</div><input style={S.input} value={form.comercio} onChange={upd("comercio")} placeholder="ej: Copec, Sodimac..."/></div>
+          <div style={S.group}><div style={S.label}>RUT comercio</div><input style={S.input} value={form.rut_comercio} onChange={upd("rut_comercio")} placeholder="ej: 76.123.456-7"/></div>
+
+          <div style={S.group}>
+            <div style={S.label}>Moneda</div>
+            <select style={S.input} value={moneda} onChange={e=>handleCurrencyChange(e.target.value)}>
+              {CURRENCIES.map(c=><option key={c.code} value={c.code}>{c.label} ({c.code})</option>)}
+            </select>
+            {moneda!=="CLP"&&(
+              <div style={{fontSize:12,color:"#888",marginTop:6}}>
+                {loadingRate?"Buscando tipo de cambio...":`1 ${moneda} = ${clp(exchangeRate)} (hoy)`}
+              </div>
+            )}
+          </div>
+
+          <div style={S.row}>
+            <div style={{flex:1}}>
+              <div style={S.label}>Neto ({moneda})</div>
+              <input style={S.input} type="number" value={form.monto_neto}
+                onChange={e=>{
+                  const neto=parseInt(e.target.value)||0;
+                  const iva=Math.round(neto*0.19);
+                  const total=neto+iva;
+                  setForm(f=>({...f,monto_neto:e.target.value,iva:iva||"",monto_total:total||""}));
+                }} placeholder="0"/>
+            </div>
+            <div style={{flex:1}}>
+              <div style={S.label}>IVA (19% auto)</div>
+              <input style={{...S.input,background:"#f9f9f9"}} type="number" value={form.iva}
+                onChange={e=>{
+                  const iva=parseInt(e.target.value)||0;
+                  const neto=parseInt(String(form.monto_neto))||0;
+                  setForm(f=>({...f,iva:e.target.value,monto_total:(neto+iva)||""}));
+                }} placeholder="0"/>
+            </div>
+          </div>
+          <div style={S.group}>
+            <div style={S.label}>Monto total * {moneda!=="CLP"&&`(${moneda})`}</div>
+            <input style={{...S.input,fontSize:18,fontWeight:700}} type="number" value={form.monto_total}
+              onChange={upd("monto_total")} placeholder="0"/>
+            {form.monto_neto&&!form.iva&&<div style={{fontSize:11,color:"#aaa",marginTop:4}}>¿Sin IVA? El total es el mismo que el neto.</div>}
+            {moneda!=="CLP"&&form.monto_total&&(
+              <div style={{background:"#f0f7ff",borderRadius:8,padding:"8px 12px",marginTop:8,fontSize:13,color:"#1a5276"}}>
+                Equivale a <strong>{clp(Math.round((parseInt(String(form.monto_total).replace(/[^0-9]/g,""))||0)*exchangeRate))}</strong> CLP
+              </div>
+            )}
+          </div>
+          <div style={S.row}>
+            <div style={{flex:1}}><div style={S.label}>Fecha</div><input style={S.input} type="date" value={form.fecha} onChange={upd("fecha")}/></div>
+            <div style={{flex:1}}><div style={S.label}>Categoría</div><select style={S.input} value={form.categoria} onChange={upd("categoria")}>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+          </div>
+        </>
+      )}
       {/* Payer + Participants for group entities */}
       {groupMembers.length>0&&(
         <div style={S.group}>
@@ -685,7 +733,7 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
           </div>
         </div>
       )}
-      {groupMembers.length>0&&(
+      {groupMembers.length>0&&entities.find(e=>e.id===form.entity_id)?.type==="group"&&(
         <div style={S.group}>
           <div style={S.label}>¿Quiénes participan en este gasto? *</div>
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -708,8 +756,12 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
           )}
         </div>
       )}
-      <div style={S.group}><div style={S.label}>Descripción</div><input style={S.input} value={form.descripcion} onChange={upd("descripcion")} placeholder="Breve descripción..."/></div>
-      <div style={S.group}><div style={S.label}>Nota</div><textarea style={{...S.input,height:64,resize:"none"}} value={form.nota} onChange={upd("nota")} placeholder="Comentario adicional..."/></div>
+      {!manualMode&&(
+        <>
+          <div style={S.group}><div style={S.label}>Descripción</div><input style={S.input} value={form.descripcion} onChange={upd("descripcion")} placeholder="Breve descripción..."/></div>
+          <div style={S.group}><div style={S.label}>Nota</div><textarea style={{...S.input,height:64,resize:"none"}} value={form.nota} onChange={upd("nota")} placeholder="Comentario adicional..."/></div>
+        </>
+      )}
       <button style={S.btn} onClick={save} disabled={saving}>{saving?"Guardando…":"💾 Guardar Gasto"}</button>
       <div style={{height:40}}/>
     </div>
@@ -1956,6 +2008,20 @@ export default function App() {
     return ()=>subscription.unsubscribe();
   },[]);
 
+  const initGuest = async (session) => {
+    setLoading(true);
+    const {data:ent}=await supabase.from("entities").select("*").eq("id",session.entity_id).single();
+    if(ent) setEntities([ent]);
+    const {data:exps}=await supabase.from("expenses").select("*").eq("entity_id",session.entity_id).order("created_at",{ascending:false});
+    setExpenses(exps||[]);
+    setLoading(false);
+  };
+
+  // Load guest data when session is set (and no real user)
+  useEffect(()=>{
+    if(!user && guestSession) initGuest(guestSession);
+  },[guestSession?.entity_id, user]);
+
   const initUser = async (u) => {
     setUser(u);
     // Load profile
@@ -2008,25 +2074,26 @@ export default function App() {
 
   const signOut = async () => { await supabase.auth.signOut(); setUser(null); setProfile(null); setEntities([]); setExpenses([]); };
 
-  // Guest session check
+  // Guest session check - ALL groups now use guest selection, no login required
   const [guestSession,setGuestSessionState] = useState(()=>getGuestSession());
   const [guestEntity,setGuestEntity] = useState(null);
   const [showGuestSelect,setShowGuestSelect] = useState(false);
+  const [guestEntityLoading,setGuestEntityLoading] = useState(!!inviteToken);
 
-  // Check if URL has invite token and entity has guests
+  // Check if URL has invite token - always show guest select for group links
   useEffect(()=>{
-    if(!inviteToken) return;
+    if(!inviteToken){ setGuestEntityLoading(false); return; }
     supabase.from("entities").select("*").eq("invite_token",inviteToken).single().then(({data:ent})=>{
+      setGuestEntityLoading(false);
       if(!ent) return;
-      // Check if entity has guest participants
-      supabase.from("group_guests").select("id").eq("entity_id",ent.id).then(({data:guests})=>{
-        if(guests&&guests.length>0){
-          setGuestEntity(ent);
-          // Check if already selected a guest
-          const session=getGuestSession();
-          if(!session||session.entity_id!==ent.id) setShowGuestSelect(true);
-        }
-      });
+      setGuestEntity(ent);
+      const session=getGuestSession();
+      if(!session||session.entity_id!==ent.id) setShowGuestSelect(true);
+      else {
+        // Already identified, go straight to group
+        setScreen("groupSplit");
+        setParams({entityId:ent.id});
+      }
     });
   },[inviteToken]);
 
@@ -2035,12 +2102,19 @@ export default function App() {
     setGuestSession(session);
     setGuestSessionState(session);
     setShowGuestSelect(false);
-    // Navigate to group split
     setScreen("groupSplit");
     setParams({entityId:guest.entity_id});
   };
 
-  // Show guest select screen
+  // Loading while we check the invite token
+  if(inviteToken && guestEntityLoading) return (
+    <div style={{fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",background:"#f7f5f0",minHeight:"100vh"}}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0;}@keyframes spin{to{transform:rotate(360deg);}}`}</style>
+      <Spinner text="Cargando invitación..."/>
+    </div>
+  );
+
+  // Show guest select screen for ANY group invite
   if(showGuestSelect && guestEntity) return (
     <div style={{fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",background:"#f7f5f0",minHeight:"100vh"}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0;}@keyframes spin{to{transform:rotate(360deg);}}`}</style>
@@ -2048,8 +2122,8 @@ export default function App() {
     </div>
   );
 
-  // Show invite screen before auth if token present (for non-guest groups)
-  if(inviteToken && !guestEntity && (loading || !user)) return (
+  // Show invite screen before auth if token present but entity not found (invalid link)
+  if(inviteToken && !guestEntity && !guestEntityLoading && (loading || !user)) return (
     <div style={{fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",background:"#f7f5f0",minHeight:"100vh"}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0;}input:focus{outline:2px solid #1a5276;outline-offset:1px;}@keyframes spin{to{transform:rotate(360deg);}}`}</style>
       <InviteScreen nav={nav} token={inviteToken}/>
@@ -2063,26 +2137,36 @@ export default function App() {
     </div>
   );
 
-  if(!user) return (
+  // Guest mode: not logged in, but has a guest session (identified via "¿Quién eres?")
+  const isGuestMode = !user && guestSession;
+
+  if(!user && !guestSession) return (
     <div style={{fontFamily:"'DM Sans',sans-serif"}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0;}input:focus{outline:2px solid #1a5276;outline-offset:1px;}@keyframes spin{to{transform:rotate(360deg);}}`}</style>
       <AuthScreen onAuth={u=>initUser(u)}/>
     </div>
   );
 
-  const commonProps = {profile,entities,expenses,categories,nav,userId:user?.id,dispatch};
+  const guestEntities = isGuestMode ? entities.filter(e=>e.id===guestSession.entity_id) : entities;
+  const guestExpenses = isGuestMode ? expenses.filter(e=>e.entity_id===guestSession.entity_id) : expenses;
+
+  const commonProps = {
+    profile, entities:guestEntities, expenses:guestExpenses, categories, nav, dispatch,
+    userId: isGuestMode ? ("guest_"+guestSession.guest_id) : user?.id,
+    guestSession: isGuestMode ? guestSession : null,
+  };
 
   return (
     <div style={{fontFamily:"'DM Sans',sans-serif",maxWidth:480,margin:"0 auto",background:"#f7f5f0",minHeight:"100vh"}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap');*{box-sizing:border-box;margin:0;padding:0;}input:focus,select:focus,textarea:focus{outline:2px solid #1a5276;outline-offset:1px;}@keyframes spin{to{transform:rotate(360deg);}}button:active{opacity:.85;}`}</style>
-      {screen==="home"      && <HomeScreen    {...commonProps} onSignOut={signOut} totalUnseen={totalUnseen} getUnseenCount={getUnseenCount} markSeen={markSeen} userId={user?.id}/>}
-      {screen==="capture"   && <CaptureScreen {...commonProps} onSaved={exp=>{setExpenses(e=>[exp,...e]);}}/>}
-      {screen==="report"    && <ReportScreen  {...commonProps} initParams={screenParams} onDelete={id=>setExpenses(e=>e.filter(x=>x.id!==id))} onUpdate={updated=>setExpenses(e=>e.map(x=>x.id===updated.id?updated:x))}/>}
-      {screen==="newEntity" && <NewEntityScreen {...commonProps} onCreated={e=>setEntities(prev=>[...prev,e])}/>}
-      {screen==="admin"     && <AdminScreen   {...commonProps}/>}
-      {screen==="settings"  && <SettingsScreen {...commonProps}/>}
-      {screen==="groupSplit"      && <GroupSplitScreen entity={entities.find(e=>e.id===screenParams?.entityId)} expenses={expenses} nav={nav}/>}
-      {screen==="entityExpenses"  && <EntityExpensesScreen entity={entities.find(e=>e.id===screenParams?.entityId)} expenses={expenses} categories={categories} entities={entities} nav={nav} onDelete={id=>setExpenses(e=>e.filter(x=>x.id!==id))} onUpdate={updated=>setExpenses(e=>e.map(x=>x.id===updated.id?updated:x))}/>}
+      {screen==="home"      && !isGuestMode && <HomeScreen    {...commonProps} onSignOut={signOut} totalUnseen={totalUnseen} getUnseenCount={getUnseenCount} markSeen={markSeen} userId={user?.id}/>}
+      {screen==="capture"   && <CaptureScreen {...commonProps} onSaved={exp=>{setExpenses(e=>[exp,...e]);}} initEntityId={screenParams?.entityId}/>}
+      {screen==="report"    && !isGuestMode && <ReportScreen  {...commonProps} initParams={screenParams} onDelete={id=>setExpenses(e=>e.filter(x=>x.id!==id))} onUpdate={updated=>setExpenses(e=>e.map(x=>x.id===updated.id?updated:x))}/>}
+      {screen==="newEntity" && !isGuestMode && <NewEntityScreen {...commonProps} onCreated={e=>setEntities(prev=>[...prev,e])}/>}
+      {screen==="admin"     && !isGuestMode && <AdminScreen   {...commonProps}/>}
+      {screen==="settings"  && !isGuestMode && <SettingsScreen {...commonProps}/>}
+      {screen==="groupSplit"      && <GroupSplitScreen entity={entities.find(e=>e.id===screenParams?.entityId)} expenses={expenses} nav={nav} guestSession={isGuestMode?guestSession:null}/>}
+      {screen==="entityExpenses"  && !isGuestMode && <EntityExpensesScreen entity={entities.find(e=>e.id===screenParams?.entityId)} expenses={expenses} categories={categories} entities={entities} nav={nav} onDelete={id=>setExpenses(e=>e.filter(x=>x.id!==id))} onUpdate={updated=>setExpenses(e=>e.map(x=>x.id===updated.id?updated:x))}/>}
       {screen==="invite"     && <InviteScreen nav={nav} token={inviteToken}/>}
     </div>
   );
