@@ -1653,26 +1653,14 @@ Total: $${total.toLocaleString("es-CL")}
           {/* DETAILED */}
           {view==="detailed" && (
             <div>
-              <div style={S.sectionLabel}>Detalle por persona</div>
-              {members.map(m=>{
-                const p=paid[m.id]||0,o=owes[m.id]||0,b=balance[m.id]||0;
+              <div style={S.sectionLabel}>Resumen de pagos</div>
+              {[...members].sort((a,b)=>(paid[b.id]||0)-(paid[a.id]||0)).map(m=>{
+                const p=paid[m.id]||0;
                 return (
-                  <div key={m.id} style={{...S.card,borderLeft:`4px solid ${b>=0?"#1a7a4a":"#c0392b"}`}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <div key={m.id} style={{...S.card,borderLeft:"4px solid #1a5276"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                       <div style={{fontWeight:700,fontSize:15}}>{m.nombre||m.email}</div>
-                      <div style={{fontSize:12,background:b>=0?"#e8f5e9":"#fde8e8",color:b>=0?"#2e7d32":"#b00020",borderRadius:6,padding:"3px 10px",fontWeight:700}}>
-                        {b>0?`recibe ${clp(b)}`:b<0?`debe ${clp(Math.abs(b))}`:"al día"}
-                      </div>
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                      <div style={{background:"#f0f7ff",borderRadius:8,padding:"8px 10px"}}>
-                        <div style={{fontSize:11,color:"#aaa",marginBottom:2}}>💳 Pagó</div>
-                        <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:"#1a5276"}}>{clp(p)}</div>
-                      </div>
-                      <div style={{background:"#f5f5f5",borderRadius:8,padding:"8px 10px"}}>
-                        <div style={{fontSize:11,color:"#aaa",marginBottom:2}}>📌 Le corresponde</div>
-                        <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:"#555"}}>{clp(o)}</div>
-                      </div>
+                      <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:18,color:"#1a5276"}}>{clp(p)}</div>
                     </div>
                   </div>
                 );
