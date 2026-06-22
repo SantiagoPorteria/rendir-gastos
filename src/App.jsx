@@ -64,6 +64,25 @@ const iso2d   = s  => { if(!s)return""; const[y,m,d]=s.split("-"); return`${d}/$
 const todayFn = () => new Date().toISOString().split("T")[0];
 const ym2label= ym => { if(!ym)return""; const[y,m]=ym.split("-"); return`${MONTH_NAMES[parseInt(m)-1]} ${y}`; };
 
+const S={
+  page:{padding:"0 16px 16px",maxWidth:480,margin:"0 auto"},
+  btn:{background:"#1a5276",color:"#fff",border:"none",borderRadius:12,padding:"14px",fontSize:15,fontWeight:700,cursor:"pointer",width:"100%",fontFamily:"inherit"},
+  btnOut:{background:"#fff",color:"#1a5276",border:"2px solid #1a5276",borderRadius:12,padding:"12px 16px",fontSize:14,fontWeight:700,cursor:"pointer",flex:1,fontFamily:"inherit"},
+  btnIcon:{background:"#f0f0f0",border:"none",borderRadius:12,padding:"12px 14px",fontSize:18,cursor:"pointer"},
+  card:{background:"#fff",borderRadius:12,padding:"12px 14px",marginBottom:8,boxShadow:"0 1px 4px rgba(0,0,0,.05)"},
+  cardTitle:{fontWeight:700,fontSize:15,color:"#111",marginBottom:4},
+  desc:{fontSize:12,color:"#888",marginTop:3},
+  meta:{fontSize:11,color:"#bbb",marginTop:3},
+  sectionLabel:{fontSize:11,fontWeight:700,color:"#bbb",textTransform:"uppercase",letterSpacing:1,margin:"10px 0 8px"},
+  empty:{textAlign:"center",color:"#bbb",padding:"40px 20px",display:"flex",flexDirection:"column",alignItems:"center",gap:10,fontSize:14},
+  group:{marginBottom:14},
+  row:{display:"flex",gap:10,marginBottom:14},
+  label:{fontSize:11,fontWeight:700,color:"#999",marginBottom:5,textTransform:"uppercase",letterSpacing:.5},
+  input:{width:"100%",border:"1.5px solid #e0e0e0",borderRadius:10,padding:"11px 13px",fontSize:14,fontFamily:"inherit",background:"#fff",color:"#111"},
+  spinner:{width:40,height:40,border:"4px solid #e0eaf5",borderTop:"4px solid #1a5276",borderRadius:"50%",animation:"spin .8s linear infinite"},
+};
+
+
 async function loadScript(src) {
   return new Promise((res,rej) => {
     if(document.querySelector(`script[src="${src}"]`)){res();return;}
@@ -2172,20 +2191,3 @@ export default function App() {
   );
 }
 
-const S={
-  page:{padding:"0 16px 16px",maxWidth:480,margin:"0 auto"},
-  btn:{background:"#1a5276",color:"#fff",border:"none",borderRadius:12,padding:"14px",fontSize:15,fontWeight:700,cursor:"pointer",width:"100%",fontFamily:"inherit"},
-  btnOut:{background:"#fff",color:"#1a5276",border:"2px solid #1a5276",borderRadius:12,padding:"12px 16px",fontSize:14,fontWeight:700,cursor:"pointer",flex:1,fontFamily:"inherit"},
-  btnIcon:{background:"#f0f0f0",border:"none",borderRadius:12,padding:"12px 14px",fontSize:18,cursor:"pointer"},
-  card:{background:"#fff",borderRadius:12,padding:"12px 14px",marginBottom:8,boxShadow:"0 1px 4px rgba(0,0,0,.05)"},
-  cardTitle:{fontWeight:700,fontSize:15,color:"#111",marginBottom:4},
-  desc:{fontSize:12,color:"#888",marginTop:3},
-  meta:{fontSize:11,color:"#bbb",marginTop:3},
-  sectionLabel:{fontSize:11,fontWeight:700,color:"#bbb",textTransform:"uppercase",letterSpacing:1,margin:"10px 0 8px"},
-  empty:{textAlign:"center",color:"#bbb",padding:"40px 20px",display:"flex",flexDirection:"column",alignItems:"center",gap:10,fontSize:14},
-  group:{marginBottom:14},
-  row:{display:"flex",gap:10,marginBottom:14},
-  label:{fontSize:11,fontWeight:700,color:"#999",marginBottom:5,textTransform:"uppercase",letterSpacing:.5},
-  input:{width:"100%",border:"1.5px solid #e0e0e0",borderRadius:10,padding:"11px 13px",fontSize:14,fontFamily:"inherit",background:"#fff",color:"#111"},
-  spinner:{width:40,height:40,border:"4px solid #e0eaf5",borderTop:"4px solid #1a5276",borderRadius:"50%",animation:"spin .8s linear infinite"},
-};
