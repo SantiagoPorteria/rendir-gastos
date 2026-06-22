@@ -1493,10 +1493,13 @@ function GroupSplitScreen({entity,expenses,nav}) {
     let msg=`💰 *Split — ${entity.label}*
 Total: $${total.toLocaleString("es-CL")}
 
-*PAGOS*
+*RESUMEN DE PAGOS*
 `;
-    members.forEach(m=>{msg+=`${m.nombre||m.email}: pagó $${(paid[m.id]||0).toLocaleString("es-CL")} / le corresponde $${(owes[m.id]||0).toLocaleString("es-CL")}
-`;});
+    [...members].sort((a,b)=>(paid[b.id]||0)-(paid[a.id]||0)).forEach(m=>{
+      const p=paid[m.id]||0;
+      if(p>0) msg+=`${m.nombre||m.email}: $${p.toLocaleString("es-CL")}
+`;
+    });
     if(tx.length>0){msg+=`
 *TRANSFERENCIAS*
 `;tx.forEach(t=>{msg+=`${t.from.nombre||t.from.email} → ${t.to.nombre||t.to.email}: $${t.amount.toLocaleString("es-CL")}
