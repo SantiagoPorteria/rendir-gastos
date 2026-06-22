@@ -584,12 +584,20 @@ function CaptureScreen({entities,categories,nav,userId,onSaved,initEntityId,gues
       await supabase.from("expense_participants").insert(participantRows);
     }
     onSaved(data);
-    nav("home");
+    backNav();
+  };
+
+  // Where to go back to: the group/entity screen if we came from one, else home
+  const isGroupEntity = entities.find(e=>e.id===initEntityId)?.type==="group";
+  const backNav = () => {
+    if(initEntityId && isGroupEntity) nav("groupSplit",{entityId:initEntityId});
+    else if(initEntityId) nav("entityExpenses",{entityId:initEntityId});
+    else nav("home");
   };
 
   if(step==="choose") return (
     <div style={S.page}>
-      <TopBar title="Nuevo Gasto" onBack={()=>nav("home")}/>
+      <TopBar title="Nuevo Gasto" onBack={backNav}/>
       <div style={{textAlign:"center",padding:"36px 0 28px"}}>
         <div style={{fontSize:68}}>📷</div>
         <div style={{fontFamily:"'Georgia',serif",fontSize:22,fontWeight:700,margin:"12px 0 6px"}}>Fotografía el comprobante</div>
@@ -1395,7 +1403,7 @@ function InviteScreen({nav, token}) {
 }
 
 // ─── GROUP SPLIT SCREEN ───────────────────────────────────────────────────────
-function GroupSplitScreen({entity,expenses,nav}) {
+function GroupSplitScreen({entity,expenses,nav,guestSession}) {
   const [members,setMembers]=useState([]);
   const [expParticipants,setExpParticipants]=useState({});
   const [loading,setLoading]=useState(true);
@@ -1519,9 +1527,13 @@ Total: $${total.toLocaleString("es-CL")}
 
   return (
     <div style={S.page}>
-      <TopBar title={entity.label} onBack={()=>nav("home")} right={
-        <button onClick={shareWA} style={{background:"#25D366",color:"#fff",border:"none",borderRadius:9,padding:"7px 12px",cursor:"pointer",fontWeight:700,fontSize:12,fontFamily:"inherit"}}>📲 WA</button>
+      <TopBar title={entity.label} onBack={guestSession?null:()=>nav("home")} right={
+        <div style={{display:"flex",gap:6}}>
+          <button onClick={()=>nav("capture",{entityId:entity.id})} style={{background:"#1a5276",color:"#fff",border:"none",borderRadius:9,padding:"7px 12px",cursor:"pointer",fontWeight:700,fontSize:12,fontFamily:"inherit"}}>+ Gasto</button>
+          <button onClick={shareWA} style={{background:"#25D366",color:"#fff",border:"none",borderRadius:9,padding:"7px 10px",cursor:"pointer",fontWeight:700,fontSize:12,fontFamily:"inherit"}}>📲</button>
+        </div>
       }/>
+      {guestSession&&<div style={{fontSize:12,color:"#888",marginBottom:12}}>👤 Identificado como <strong>{guestSession.guest_name}</strong></div>}
 
       {/* Tab selector */}
       <div style={{display:"flex",gap:8,marginBottom:16}}>
@@ -1803,7 +1815,7 @@ function EntityExpensesScreen({entity,expenses,categories,entities,nav,onDelete,
   return (
     <div style={S.page}>
       <TopBar title={entity.label} onBack={()=>nav("home")} right={
-        <button onClick={()=>nav("capture")} style={{background:"#1a5276",color:"#fff",border:"none",borderRadius:9,padding:"7px 12px",cursor:"pointer",fontWeight:700,fontSize:13,fontFamily:"inherit"}}>+ Gasto</button>
+        <button onClick={()=>nav("capture",{entityId:entity.id})} style={{background:"#1a5276",color:"#fff",border:"none",borderRadius:9,padding:"7px 12px",cursor:"pointer",fontWeight:700,fontSize:13,fontFamily:"inherit"}}>+ Gasto</button>
       }/>
 
       {/* Month filter */}
@@ -1877,7 +1889,7 @@ function EntityExpensesScreen({entity,expenses,categories,entities,nav,onDelete,
         <div style={S.empty}>
           <div style={{fontSize:48}}>📋</div>
           <div>Sin gastos en esta entidad</div>
-          <button onClick={()=>nav("capture")} style={{...S.btn,marginTop:12,width:"auto",padding:"10px 20px"}}>+ Cargar gasto</button>
+          <button onClick={()=>nav("capture",{entityId:entity.id})} style={{...S.btn,marginTop:12,width:"auto",padding:"10px 20px"}}>+ Cargar gasto</button>
         </div>
       )}
 
