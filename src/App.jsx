@@ -2036,11 +2036,6 @@ export default function App() {
     setLoading(false);
   };
 
-  // Load guest data when session is set (and no real user)
-  useEffect(()=>{
-    if(!user && guestSession) initGuest(guestSession);
-  },[guestSession?.entity_id, user]);
-
   const initUser = async (u) => {
     setUser(u);
     // Load profile
@@ -2098,6 +2093,11 @@ export default function App() {
   const [guestEntity,setGuestEntity] = useState(null);
   const [showGuestSelect,setShowGuestSelect] = useState(false);
   const [guestEntityLoading,setGuestEntityLoading] = useState(!!inviteToken);
+
+  // Load guest's group data (entity + expenses) once we know who they are
+  useEffect(()=>{
+    if(!user && guestSession) initGuest(guestSession);
+  },[guestSession?.entity_id, user]);
 
   // Check if URL has invite token - always show guest select for group links
   useEffect(()=>{
