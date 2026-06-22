@@ -15,6 +15,27 @@ function clearGuestSession() { localStorage.removeItem(GUEST_SESSION_KEY); }
 
 const PALETTE = ["#1a5276","#1a7a4a","#7d3c98","#b7770d","#c0392b","#2e86c1","#17a589","#d35400","#839192","#2c3e50"];
 const MONTH_NAMES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const CURRENCIES = [
+  {code:"CLP",label:"Peso chileno",symbol:"$"},
+  {code:"USD",label:"Dólar USA",symbol:"US$"},
+  {code:"EUR",label:"Euro",symbol:"€"},
+  {code:"ISK",label:"Corona islandesa",symbol:"ISK"},
+  {code:"ARS",label:"Peso argentino",symbol:"AR$"},
+  {code:"BRL",label:"Real brasileño",symbol:"R$"},
+  {code:"PEN",label:"Sol peruano",symbol:"S/"},
+];
+
+async function getExchangeRate(fromCurrency) {
+  if(fromCurrency==="CLP") return 1;
+  try {
+    const res = await fetch(`/api/exchange-rate?base=${fromCurrency}`);
+    const data = await res.json();
+    return data?.conversion_rates?.CLP || null;
+  } catch(e) {
+    return null;
+  }
+}
+
 const DEFAULT_CATEGORIES = ["Bencina","Almuerzos","Cafetería","Gastos Oficina","Peajes","Estacionamientos","Supermercado","Restaurantes","Clientes","Merchandising","Eventos","Otro"];
 const ENTITY_ICONS = ["🏢","🏗️","🏠","🚗","✈️","🎉","🤝","💼","🏪","⚽","🎨","📦","🥩","🍺","⛳","🧳","🎯","🏖️","🎸","🍕","🏔️","🎲","🚢","🏕️","🎾","🏋️","🎂","🍻","🌴","💻","🏊"];
 
@@ -412,10 +433,22 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
   const [participants,setParticipants]=useState([]);
   const [groupMembers,setGroupMembers]=useState([]);
   const [payer,setPayer]=useState(userId);
+  const [moneda,setMoneda]=useState("CLP");
+  const [exchangeRate,setExchangeRate]=useState(1);
+  const [loadingRate,setLoadingRate]=useState(false);
   const fileRef=useRef();
   const blank={entity_id:"",comercio:"",rut_comercio:"",monto_total:"",monto_neto:"",iva:"",fecha:todayFn(),tipo_documento:"boleta",numero_documento:"",categoria:"Otro",descripcion:"",nota:""};
   const [form,setForm]=useState(blank);
   const upd=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
+
+  const handleCurrencyChange=async(code)=>{
+    setMoneda(code);
+    if(code==="CLP"){ setExchangeRate(1); return; }
+    setLoadingRate(true);
+    const rate=await getExchangeRate(code);
+    setExchangeRate(rate||1);
+    setLoadingRate(false);
+  };
 
   // Load group members when entity changes
   const loadGroupMembers = async (entityId) => {
@@ -423,12 +456,17 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
     if(ent?.type!=="group"){
       setGroupMembers([]);setParticipants([]);setPayer(userId);return;
     }
-    const {data:members, error:mErr}=await supabase.from("entity_members").select("user_id").eq("entity_id",entityId);
+    // Registered members
+    const {data:members}=await supabase.from("entity_members").select("user_id").eq("entity_id",entityId);
     const memberIds=[...new Set([...(members||[]).map(m=>m.user_id), ent.owner_id, userId])];
-    const {data:profiles, error:pErr}=await supabase.from("profiles").select("id,nombre,email").in("id",memberIds);
-    const unique=(profiles||[]).filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i);
-    setGroupMembers(unique);
-    setParticipants(unique.map(m=>m.id));
+    const {data:profiles}=await supabase.from("profiles").select("id,nombre,email").in("id",memberIds);
+    const registered=(profiles||[]).filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i).map(p=>({id:p.id,nombre:p.nombre,email:p.email,isGuest:false}));
+    // Guest participants (no account)
+    const {data:guests}=await supabase.from("group_guests").select("*").eq("entity_id",entityId);
+    const guestList=(guests||[]).map(g=>({id:"guest_"+g.id,nombre:g.nombre,email:null,isGuest:true}));
+    const all=[...registered,...guestList];
+    setGroupMembers(all);
+    setParticipants(all.map(m=>m.id));
     setPayer(userId);
   };
 
@@ -490,20 +528,32 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
         image_url=urlData.publicUrl;
       }
     }
+    const montoOriginal=parseInt(String(form.monto_total).replace(/\D/g,""))||0;
+    const montoEnCLP=moneda==="CLP"?montoOriginal:Math.round(montoOriginal*exchangeRate);
+    // Determine payer: registered user or guest
+    const payerIsGuest = typeof payer === "string" && payer.startsWith("guest_");
+    const payerUserId = payerIsGuest ? null : (groupMembers.length>0?payer:userId);
+    const payerGuestId = payerIsGuest ? payer.replace("guest_","") : null;
     const {data,error}=await supabase.from("expenses").insert({
-      entity_id:form.entity_id, user_id:groupMembers.length>0?payer:userId,
+      entity_id:form.entity_id, user_id:payerUserId, payer_guest_id:payerGuestId,
       comercio:form.comercio, rut_comercio:form.rut_comercio,
-      monto_total:parseInt(String(form.monto_total).replace(/\D/g,""))||0,
-      monto_neto:parseInt(String(form.monto_neto).replace(/\D/g,""))||0,
-      iva:parseInt(String(form.iva).replace(/\D/g,""))||0,
+      monto_total:montoEnCLP,
+      monto_neto:moneda==="CLP"?(parseInt(String(form.monto_neto).replace(/\D/g,""))||0):Math.round((parseInt(String(form.monto_neto).replace(/\D/g,""))||0)*exchangeRate),
+      iva:moneda==="CLP"?(parseInt(String(form.iva).replace(/\D/g,""))||0):Math.round((parseInt(String(form.iva).replace(/\D/g,""))||0)*exchangeRate),
       fecha:form.fecha, tipo_documento:form.tipo_documento,
       numero_documento:form.numero_documento, categoria:form.categoria,
       descripcion:form.descripcion, nota:form.nota, image_url,
+      moneda:moneda, monto_original:montoOriginal, tipo_cambio:exchangeRate,
     }).select().single();
     if(error){setErr(error.message);setSaving(false);return;}
-    // Save participants for group expenses
+    // Save participants for group expenses (handle both registered users and guests)
     if(participants.length>0 && data?.id) {
-      const participantRows = participants.map(uid=>({expense_id:data.id, user_id:uid}));
+      const participantRows = participants.map(pid=>{
+        const isGuest = typeof pid === "string" && pid.startsWith("guest_");
+        return isGuest
+          ? {expense_id:data.id, user_id:null, guest_id:pid.replace("guest_","")}
+          : {expense_id:data.id, user_id:pid, guest_id:null};
+      });
       await supabase.from("expense_participants").insert(participantRows);
     }
     onSaved(data);
@@ -569,9 +619,22 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
       </div>
       <div style={S.group}><div style={S.label}>Comercio</div><input style={S.input} value={form.comercio} onChange={upd("comercio")} placeholder="ej: Copec, Sodimac..."/></div>
       <div style={S.group}><div style={S.label}>RUT comercio</div><input style={S.input} value={form.rut_comercio} onChange={upd("rut_comercio")} placeholder="ej: 76.123.456-7"/></div>
+
+      <div style={S.group}>
+        <div style={S.label}>Moneda</div>
+        <select style={S.input} value={moneda} onChange={e=>handleCurrencyChange(e.target.value)}>
+          {CURRENCIES.map(c=><option key={c.code} value={c.code}>{c.label} ({c.code})</option>)}
+        </select>
+        {moneda!=="CLP"&&(
+          <div style={{fontSize:12,color:"#888",marginTop:6}}>
+            {loadingRate?"Buscando tipo de cambio...":`1 ${moneda} = ${clp(exchangeRate)} (hoy)`}
+          </div>
+        )}
+      </div>
+
       <div style={S.row}>
         <div style={{flex:1}}>
-          <div style={S.label}>Neto</div>
+          <div style={S.label}>Neto ({moneda})</div>
           <input style={S.input} type="number" value={form.monto_neto}
             onChange={e=>{
               const neto=parseInt(e.target.value)||0;
@@ -591,10 +654,15 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
         </div>
       </div>
       <div style={S.group}>
-        <div style={S.label}>Monto total *</div>
+        <div style={S.label}>Monto total * {moneda!=="CLP"&&`(${moneda})`}</div>
         <input style={{...S.input,fontSize:18,fontWeight:700}} type="number" value={form.monto_total}
           onChange={upd("monto_total")} placeholder="0"/>
         {form.monto_neto&&!form.iva&&<div style={{fontSize:11,color:"#aaa",marginTop:4}}>¿Sin IVA? El total es el mismo que el neto.</div>}
+        {moneda!=="CLP"&&form.monto_total&&(
+          <div style={{background:"#f0f7ff",borderRadius:8,padding:"8px 12px",marginTop:8,fontSize:13,color:"#1a5276"}}>
+            Equivale a <strong>{clp(Math.round((parseInt(String(form.monto_total).replace(/[^0-9]/g,""))||0)*exchangeRate))}</strong> CLP
+          </div>
+        )}
       </div>
       <div style={S.row}>
         <div style={{flex:1}}><div style={S.label}>Fecha</div><input style={S.input} type="date" value={form.fecha} onChange={upd("fecha")}/></div>
@@ -611,6 +679,7 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
                 <span style={{fontSize:18}}>{payer===m.id?"💳":"○"}</span>
                 <span style={{fontWeight:600,color:payer===m.id?"#b7770d":"#555",fontSize:14}}>{m.nombre||m.email}</span>
                 {m.id===userId&&<span style={{fontSize:11,color:"#aaa"}}>(yo)</span>}
+                {m.isGuest&&<span style={{fontSize:10,color:"#7d3c98",background:"#f3e8fc",borderRadius:4,padding:"1px 6px"}}>sin cuenta</span>}
               </button>
             ))}
           </div>
@@ -627,6 +696,7 @@ function CaptureScreen({entities,categories,nav,userId,onSaved}) {
                   style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,border:`2px solid ${isSelected?"#1a5276":"#e0e0e0"}`,background:isSelected?"#e8f0fe":"#fff",cursor:"pointer",fontFamily:"inherit"}}>
                   <span style={{fontSize:18}}>{isSelected?"☑️":"⬜"}</span>
                   <span style={{fontWeight:600,color:isSelected?"#1a5276":"#555",fontSize:14}}>{m.nombre||m.email}</span>
+                  {m.isGuest&&<span style={{fontSize:10,color:"#7d3c98",background:"#f3e8fc",borderRadius:4,padding:"1px 6px"}}>sin cuenta</span>}
                 </button>
               );
             })}
@@ -1274,12 +1344,19 @@ function GroupSplitScreen({entity,expenses,nav}) {
       const {data:mems}=await supabase.from("entity_members").select("user_id").eq("entity_id",entity.id);
       (mems||[]).forEach(m=>memberIds_set.add(m.user_id));
       const {data:profiles}=await supabase.from("profiles").select("id,nombre,email").in("id",[...memberIds_set]);
-      setMembers((profiles||[]).filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i));
+      const registered=(profiles||[]).filter((m,i,arr)=>arr.findIndex(x=>x.id===m.id)===i).map(p=>({id:p.id,nombre:p.nombre,email:p.email,isGuest:false}));
+      // Guests
+      const {data:guests}=await supabase.from("group_guests").select("*").eq("entity_id",entity.id);
+      const guestList=(guests||[]).map(g=>({id:"guest_"+g.id,nombre:g.nombre,email:null,isGuest:true}));
+      setMembers([...registered,...guestList]);
       const expIds=groupExpenses.map(e=>e.id);
       if(expIds.length>0){
         const {data:parts}=await supabase.from("expense_participants").select("*").in("expense_id",expIds);
         const map={};
-        (parts||[]).forEach(p=>{if(!map[p.expense_id])map[p.expense_id]=[];map[p.expense_id].push(p.user_id);});
+        (parts||[]).forEach(p=>{
+          if(!map[p.expense_id])map[p.expense_id]=[];
+          map[p.expense_id].push(p.guest_id?("guest_"+p.guest_id):p.user_id);
+        });
         setExpParticipants(map);
       }
       setLoading(false);
@@ -1292,7 +1369,8 @@ function GroupSplitScreen({entity,expenses,nav}) {
     groupExpenses.forEach(exp=>{
       const parts=expParticipants[exp.id]||members.map(m=>m.id);
       const share=Math.round((exp.monto_total||0)/Math.max(parts.length,1));
-      if(paid[exp.user_id]!==undefined) paid[exp.user_id]+=(exp.monto_total||0);
+      const payerId=exp.payer_guest_id?("guest_"+exp.payer_guest_id):exp.user_id;
+      if(paid[payerId]!==undefined) paid[payerId]+=(exp.monto_total||0);
       parts.forEach(uid=>{if(owes[uid]!==undefined)owes[uid]+=share;});
     });
     const balance={};
@@ -1383,7 +1461,8 @@ Total: $${total.toLocaleString("es-CL")}
         <div>
           {groupExpenses.length===0 && <div style={S.empty}><div style={{fontSize:40}}>📋</div><div>Sin gastos todavía</div></div>}
           {[...groupExpenses].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(exp=>{
-            const payer=members.find(m=>m.id===exp.user_id);
+            const payerId=exp.payer_guest_id?("guest_"+exp.payer_guest_id):exp.user_id;
+            const payer=members.find(m=>m.id===payerId);
             const parts=expParticipants[exp.id]||[];
             return (
               <div key={exp.id} style={{...S.card,borderLeft:`4px solid ${entity.color}`}}>
@@ -1758,6 +1837,7 @@ function EntityExpensesScreen({entity,expenses,categories,entities,nav,onDelete,
                 {exp.rut_comercio&&<div style={{fontSize:11,color:"#aaa"}}>RUT: {exp.rut_comercio}</div>}
                 <div style={{display:"flex",gap:5,flexWrap:"wrap",margin:"4px 0"}}>
                   {exp.tipo_documento&&<Badge color="#999">{exp.tipo_documento}{exp.numero_documento?` N°${exp.numero_documento}`:""}</Badge>}
+                  {exp.moneda&&exp.moneda!=="CLP"&&<Badge color="#7d3c98">{exp.monto_original?.toLocaleString("es-CL")} {exp.moneda}</Badge>}
                 </div>
                 {exp.descripcion&&<div style={S.desc}>{exp.descripcion}</div>}
                 {exp.nota&&<div style={{...S.desc,color:"#bbb"}}>📝 {exp.nota}</div>}
