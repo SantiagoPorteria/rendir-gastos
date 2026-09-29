@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+import { createClient } from "@supabase/supabase-js";
 
 // ─── SUPABASE ─────────────────────────────────────────────────────────────────
 const SUPABASE_URL = "https://logxraqrwfqfoxtfbcxk.supabase.co";
@@ -63,6 +63,18 @@ const clp     = n  => "$" + Math.round(Number(n)||0).toLocaleString("es-CL");
 const iso2d   = s  => { if(!s)return""; const[y,m,d]=s.split("-"); return`${d}/${m}/${y}`; };
 const todayFn = () => new Date().toISOString().split("T")[0];
 const ym2label= ym => { if(!ym)return""; const[y,m]=ym.split("-"); return`${MONTH_NAMES[parseInt(m)-1]} ${y}`; };
+// Display expense amount in original currency (Opción B)
+// If CLP → show "$X", if foreign → show "€X" (or "US$X", etc.) + "(= $X CLP)" subtitle
+const fmtExpense = (exp) => {
+  const moneda = exp.moneda || "CLP";
+  const cur = CURRENCIES.find(c=>c.code===moneda) || {symbol:"$",code:"CLP"};
+  if(moneda==="CLP") return { main: clp(exp.monto_total), sub: null };
+  const montoOrig = exp.monto_original || exp.monto_total;
+  return {
+    main: cur.symbol + Number(montoOrig).toLocaleString("es-CL"),
+    sub: "≈ " + clp(exp.monto_total)
+  };
+};
 
 const S={
   page:{padding:"0 16px 16px",maxWidth:480,margin:"0 auto"},
@@ -340,8 +352,11 @@ function HomeScreen({profile,entities,expenses,nav,onSignOut,totalUnseen=0,getUn
                 <div style={S.meta}>{iso2d(exp.fecha)}{exp.rut_comercio?` · ${exp.rut_comercio}`:""}</div>
               </div>
               <div style={{textAlign:"right",marginLeft:12,flexShrink:0}}>
-                <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:ent?.color||"#333"}}>{clp(exp.monto_total)}</div>
-                {exp.iva>0&&<div style={{fontSize:10,color:"#bbb"}}>IVA {clp(exp.iva)}</div>}
+                {(()=>{const fmt=fmtExpense(exp);return(<>
+                  <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:ent?.color||"#333"}}>{fmt.main}</div>
+                  {fmt.sub&&<div style={{fontSize:10,color:"#aaa"}}>{fmt.sub}</div>}
+                  {exp.iva>0&&<div style={{fontSize:10,color:"#bbb"}}>IVA {clp(exp.iva)}</div>}
+                </>);})()}
               </div>
             </div>
           </div>
@@ -558,11 +573,17 @@ function CaptureScreen({entities,categories,nav,userId,onSaved,initEntityId,gues
     const montoOriginal=parseInt(String(form.monto_total).replace(/\D/g,""))||0;
     const montoEnCLP=moneda==="CLP"?montoOriginal:Math.round(montoOriginal*exchangeRate);
     // Determine payer: registered user or guest
+    // user_id = ALWAYS the authenticated user (required by RLS policy)
+    // payer_user_id = who actually paid (may differ in group expenses)
+    // payer_guest_id = if the payer is a guest (no account)
     const payerIsGuest = typeof payer === "string" && payer.startsWith("guest_");
-    const payerUserId = payerIsGuest ? null : (groupMembers.length>0?payer:userId);
+    const payerUserId = payerIsGuest ? null : (groupMembers.length>0 ? payer : userId);
     const payerGuestId = payerIsGuest ? payer.replace("guest_","") : null;
     const {data,error}=await supabase.from("expenses").insert({
-      entity_id:form.entity_id, user_id:payerUserId, payer_guest_id:payerGuestId,
+      entity_id:form.entity_id,
+      user_id: userId,              // ← always the auth user (RLS requires this)
+      payer_user_id: payerUserId,   // ← who actually paid (may be different user)
+      payer_guest_id: payerGuestId, // ← if payer is a guest without account
       comercio:form.comercio, rut_comercio:form.rut_comercio,
       monto_total:montoEnCLP,
       monto_neto:moneda==="CLP"?(parseInt(String(form.monto_neto).replace(/\D/g,""))||0):Math.round((parseInt(String(form.monto_neto).replace(/\D/g,""))||0)*exchangeRate),
@@ -923,7 +944,9 @@ function ReportScreen({entities,expenses,categories,nav,initParams,onDelete,onUp
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                   <div style={S.cardTitle}>{exp.categoria||"Sin categoría"}{exp.comercio?` · ${exp.comercio}`:""}</div>
-                  <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:ent?.color,marginLeft:8,flexShrink:0}}>{clp(exp.monto_total)}</div>
+                  <div style={{textAlign:"right",marginLeft:8,flexShrink:0}}>
+                    {(()=>{const fmt=fmtExpense(exp);return(<><div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:ent?.color}}>{fmt.main}</div>{fmt.sub&&<div style={{fontSize:10,color:"#aaa"}}>{fmt.sub}</div>}</>);})()}
+                  </div>
                 </div>
                 {exp.rut_comercio&&<div style={{fontSize:11,color:"#aaa",marginBottom:3}}>RUT: {exp.rut_comercio}</div>}
                 <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:4}}>
@@ -1409,6 +1432,32 @@ function GroupSplitScreen({entity,expenses,nav,guestSession}) {
   const [loading,setLoading]=useState(true);
   const [view,setView]=useState("detailed");
   const [tab,setTab]=useState("split");
+  const [showRegister,setShowRegister]=useState(false);
+  const [regEmail,setRegEmail]=useState("");
+  const [regPass,setRegPass]=useState("");
+  const [regErr,setRegErr]=useState(null);
+  const [regLoading,setRegLoading]=useState(false);
+
+  const handleRegister = async () => {
+    setRegErr(null); setRegLoading(true);
+    try {
+      const {data,error} = await supabase.auth.signUp({
+        email: regEmail, password: regPass,
+        options: {data: {nombre: guestSession.guest_name}}
+      });
+      if(error) throw error;
+      // Migrate guest data to new account once confirmed
+      // Store pending migration info for after email confirmation
+      localStorage.setItem("pending_guest_migration", JSON.stringify({
+        guest_id: guestSession.guest_id,
+        email: regEmail,
+      }));
+      setRegErr("__confirm__");
+    } catch(e) {
+      setRegErr(e.message);
+    }
+    setRegLoading(false);
+  };
   const [deleting,setDeleting]=useState(null);
   const [editing,setEditing]=useState(null);
   const [editForm,setEditForm]=useState({});
@@ -1448,7 +1497,7 @@ function GroupSplitScreen({entity,expenses,nav,guestSession}) {
     groupExpenses.forEach(exp=>{
       const parts=expParticipants[exp.id]||members.map(m=>m.id);
       const share=Math.round((exp.monto_total||0)/Math.max(parts.length,1));
-      const payerId=exp.payer_guest_id?("guest_"+exp.payer_guest_id):exp.user_id;
+      const payerId=exp.payer_guest_id?("guest_"+exp.payer_guest_id):(exp.payer_user_id||exp.user_id);
       if(paid[payerId]!==undefined) paid[payerId]+=(exp.monto_total||0);
       parts.forEach(uid=>{if(owes[uid]!==undefined)owes[uid]+=share;});
     });
@@ -1533,7 +1582,35 @@ Total: $${total.toLocaleString("es-CL")}
           <button onClick={shareWA} style={{background:"#25D366",color:"#fff",border:"none",borderRadius:9,padding:"7px 10px",cursor:"pointer",fontWeight:700,fontSize:12,fontFamily:"inherit"}}>📲</button>
         </div>
       }/>
-      {guestSession&&<div style={{fontSize:12,color:"#888",marginBottom:12}}>👤 Identificado como <strong>{guestSession.guest_name}</strong></div>}
+      {guestSession&&!showRegister&&(
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{fontSize:12,color:"#888"}}>👤 Identificado como <strong>{guestSession.guest_name}</strong></div>
+          <button onClick={()=>setShowRegister(true)} style={{background:"none",border:"none",color:"#1a5276",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline"}}>¿Quieres tu cuenta?</button>
+        </div>
+      )}
+
+      {guestSession&&showRegister&&(
+        <div style={{background:"#fff",border:"1px solid #e0e0e0",borderRadius:12,padding:"14px",marginBottom:16}}>
+          {regErr==="__confirm__" ? (
+            <div style={{textAlign:"center",padding:"8px 0"}}>
+              <div style={{fontSize:28,marginBottom:6}}>📧</div>
+              <div style={{fontWeight:700,fontSize:14,color:"#1a7a4a",marginBottom:4}}>¡Revisá tu email!</div>
+              <div style={{fontSize:12,color:"#555"}}>Confirmá tu cuenta y la próxima vez que entres a este link, tus gastos quedarán bajo tu cuenta permanente.</div>
+            </div>
+          ) : (
+            <>
+              <div style={{fontWeight:700,fontSize:13,marginBottom:10,color:"#1a5276"}}>Crear cuenta para {guestSession.guest_name}</div>
+              {regErr&&<div style={{background:"#fde8e8",color:"#b00020",borderRadius:8,padding:"8px 10px",marginBottom:10,fontSize:12}}>{regErr}</div>}
+              <div style={{marginBottom:8}}><input style={S.input} type="email" placeholder="tu@email.com" value={regEmail} onChange={e=>setRegEmail(e.target.value)}/></div>
+              <div style={{marginBottom:10}}><input style={S.input} type="password" placeholder="Contraseña" value={regPass} onChange={e=>setRegPass(e.target.value)}/></div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={handleRegister} disabled={regLoading} style={{flex:1,background:"#1a5276",color:"#fff",border:"none",borderRadius:8,padding:"10px",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{regLoading?"Creando...":"Crear cuenta"}</button>
+                <button onClick={()=>setShowRegister(false)} style={{flex:1,background:"#f0f0f0",border:"none",borderRadius:8,padding:"10px",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Tab selector */}
       <div style={{display:"flex",gap:8,marginBottom:16}}>
@@ -1547,7 +1624,7 @@ Total: $${total.toLocaleString("es-CL")}
         <div>
           {groupExpenses.length===0 && <div style={S.empty}><div style={{fontSize:40}}>📋</div><div>Sin gastos todavía</div></div>}
           {[...groupExpenses].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(exp=>{
-            const payerId=exp.payer_guest_id?("guest_"+exp.payer_guest_id):exp.user_id;
+            const payerId=exp.payer_guest_id?("guest_"+exp.payer_guest_id):(exp.payer_user_id||exp.user_id);
             const payer=members.find(m=>m.id===payerId);
             const parts=expParticipants[exp.id]||[];
             return (
@@ -1567,7 +1644,9 @@ Total: $${total.toLocaleString("es-CL")}
                       </div>
                     </div>
                   </div>
-                  <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:entity.color,marginLeft:8}}>{clp(exp.monto_total)}</div>
+                  <div style={{textAlign:"right",marginLeft:8,flexShrink:0}}>
+                    {(()=>{const fmt=fmtExpense(exp);return(<><div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:entity.color}}>{fmt.main}</div>{fmt.sub&&<div style={{fontSize:10,color:"#aaa"}}>{fmt.sub}</div>}</>);})()}
+                  </div>
                 </div>
                 {editing===exp.id && (
                   <div style={{background:"#f8f9fa",borderRadius:10,padding:"12px",marginTop:10,borderTop:"2px solid #1a5276"}}>
@@ -1906,12 +1985,13 @@ function EntityExpensesScreen({entity,expenses,categories,entities,nav,onDelete,
                     <div style={S.cardTitle}>{exp.categoria||"Sin categoría"}</div>
                     {exp.comercio&&<div style={{fontSize:12,color:"#888",marginTop:1}}>{exp.comercio}</div>}
                   </div>
-                  <div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:catColor,marginLeft:8,flexShrink:0}}>{clp(exp.monto_total)}</div>
+                  <div style={{textAlign:"right",marginLeft:8,flexShrink:0}}>
+                    {(()=>{const fmt=fmtExpense(exp);return(<><div style={{fontFamily:"'Georgia',serif",fontWeight:700,fontSize:16,color:catColor}}>{fmt.main}</div>{fmt.sub&&<div style={{fontSize:10,color:"#aaa"}}>{fmt.sub}</div>}</>);})()}
+                  </div>
                 </div>
                 {exp.rut_comercio&&<div style={{fontSize:11,color:"#aaa"}}>RUT: {exp.rut_comercio}</div>}
                 <div style={{display:"flex",gap:5,flexWrap:"wrap",margin:"4px 0"}}>
                   {exp.tipo_documento&&<Badge color="#999">{exp.tipo_documento}{exp.numero_documento?` N°${exp.numero_documento}`:""}</Badge>}
-                  {exp.moneda&&exp.moneda!=="CLP"&&<Badge color="#7d3c98">{exp.monto_original?.toLocaleString("es-CL")} {exp.moneda}</Badge>}
                 </div>
                 {exp.descripcion&&<div style={S.desc}>{exp.descripcion}</div>}
                 {exp.nota&&<div style={{...S.desc,color:"#bbb"}}>📝 {exp.nota}</div>}
@@ -2041,6 +2121,18 @@ export default function App() {
 
   const initUser = async (u) => {
     setUser(u);
+    // Check for pending guest-to-account migration
+    try {
+      const pending = JSON.parse(localStorage.getItem("pending_guest_migration")||"null");
+      if(pending && pending.email===u.email){
+        await supabase.from("expense_participants").update({user_id:u.id, guest_id:null}).eq("guest_id",pending.guest_id);
+        await supabase.from("expenses").update({user_id:u.id, payer_guest_id:null}).eq("payer_guest_id",pending.guest_id);
+        await supabase.from("entity_members").insert({user_id:u.id, entity_id:(await supabase.from("group_guests").select("entity_id").eq("id",pending.guest_id).single()).data?.entity_id}).then(()=>{});
+        await supabase.from("group_guests").delete().eq("id",pending.guest_id);
+        localStorage.removeItem("pending_guest_migration");
+        clearGuestSession();
+      }
+    } catch(e) { /* migration is best-effort */ }
     // Load profile
     const {data:prof}=await supabase.from("profiles").select("*").eq("id",u.id).single();
     setProfile(prof);
