@@ -1,3 +1,4 @@
+// v2.1 - fix decimales con coma
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
