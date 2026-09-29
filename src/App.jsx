@@ -61,6 +61,27 @@ function EntityIcon({entity, size=32}) {
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const clp     = n  => "$" + Math.round(Number(n)||0).toLocaleString("es-CL");
 const iso2d   = s  => { if(!s)return""; const[y,m,d]=s.split("-"); return`${d}/${m}/${y}`; };
+// Parsea montos con decimales: acepta "17,35" o "17.35" → 17.35
+const parseMonto = s => {
+  if(!s && s!==0) return 0;
+  const str = String(s).trim();
+  // Si tiene coma como separador decimal (ej: "17,35") → reemplazar por punto
+  // Si tiene punto como miles y coma decimal (ej: "1.234,56") → limpiar
+  const hasComa = str.includes(",");
+  const hasPunto = str.includes(".");
+  let clean;
+  if(hasComa && hasPunto) {
+    // "1.234,56" → quitar puntos de miles, reemplazar coma por punto
+    clean = str.replace(/\./g,"").replace(",",".");
+  } else if(hasComa) {
+    // "17,35" → "17.35"
+    clean = str.replace(",",".");
+  } else {
+    clean = str;
+  }
+  const n = parseFloat(clean);
+  return isNaN(n) ? 0 : n;
+};
 const todayFn = () => new Date().toISOString().split("T")[0];
 const ym2label= ym => { if(!ym)return""; const[y,m]=ym.split("-"); return`${MONTH_NAMES[parseInt(m)-1]} ${y}`; };
 // Display expense amount in original currency (Opción B)
@@ -570,7 +591,7 @@ function CaptureScreen({entities,categories,nav,userId,onSaved,initEntityId,gues
         image_url=urlData.publicUrl;
       }
     }
-    const montoOriginal=parseInt(String(form.monto_total).replace(/\D/g,""))||0;
+    const montoOriginal=parseMonto(form.monto_total);
     const montoEnCLP=moneda==="CLP"?montoOriginal:Math.round(montoOriginal*exchangeRate);
     // Determine payer: registered user or guest
     // user_id = ALWAYS the authenticated user (required by RLS policy)
@@ -586,8 +607,8 @@ function CaptureScreen({entities,categories,nav,userId,onSaved,initEntityId,gues
       payer_guest_id: payerGuestId, // ← if payer is a guest without account
       comercio:form.comercio, rut_comercio:form.rut_comercio,
       monto_total:montoEnCLP,
-      monto_neto:moneda==="CLP"?(parseInt(String(form.monto_neto).replace(/\D/g,""))||0):Math.round((parseInt(String(form.monto_neto).replace(/\D/g,""))||0)*exchangeRate),
-      iva:moneda==="CLP"?(parseInt(String(form.iva).replace(/\D/g,""))||0):Math.round((parseInt(String(form.iva).replace(/\D/g,""))||0)*exchangeRate),
+      monto_neto:moneda==="CLP"?(parseMonto(form.monto_neto)):Math.round((parseMonto(form.monto_neto))*exchangeRate),
+      iva:moneda==="CLP"?(parseMonto(form.iva)):Math.round((parseMonto(form.iva))*exchangeRate),
       fecha:form.fecha, tipo_documento:form.tipo_documento,
       numero_documento:form.numero_documento, categoria:form.categoria,
       descripcion:form.descripcion, nota:form.nota, image_url,
@@ -677,11 +698,11 @@ function CaptureScreen({entities,categories,nav,userId,onSaved,initEntityId,gues
         <>
           <div style={S.group}>
             <div style={S.label}>Monto total * {moneda!=="CLP"&&`(${moneda})`}</div>
-            <input style={{...S.input,fontSize:18,fontWeight:700}} type="number" value={form.monto_total}
+            <input style={{...S.input,fontSize:18,fontWeight:700}} type="text" inputMode="decimal" value={form.monto_total}
               onChange={upd("monto_total")} placeholder="0"/>
             {moneda!=="CLP"&&form.monto_total&&(
               <div style={{background:"#f0f7ff",borderRadius:8,padding:"8px 12px",marginTop:8,fontSize:13,color:"#1a5276"}}>
-                Equivale a <strong>{clp(Math.round((parseInt(String(form.monto_total).replace(/[^0-9]/g,""))||0)*exchangeRate))}</strong> CLP
+                Equivale a <strong>{clp(Math.round((parseMonto(form.monto_total))*exchangeRate))}</strong> CLP
               </div>
             )}
           </div>
@@ -742,19 +763,19 @@ function CaptureScreen({entities,categories,nav,userId,onSaved,initEntityId,gues
               <input style={{...S.input,background:"#f9f9f9"}} type="number" value={form.iva}
                 onChange={e=>{
                   const iva=parseInt(e.target.value)||0;
-                  const neto=parseInt(String(form.monto_neto))||0;
+                  const neto=parseMonto(form.monto_neto)||0;
                   setForm(f=>({...f,iva:e.target.value,monto_total:(neto+iva)||""}));
                 }} placeholder="0"/>
             </div>
           </div>
           <div style={S.group}>
             <div style={S.label}>Monto total * {moneda!=="CLP"&&`(${moneda})`}</div>
-            <input style={{...S.input,fontSize:18,fontWeight:700}} type="number" value={form.monto_total}
+            <input style={{...S.input,fontSize:18,fontWeight:700}} type="text" inputMode="decimal" value={form.monto_total}
               onChange={upd("monto_total")} placeholder="0"/>
             {form.monto_neto&&!form.iva&&<div style={{fontSize:11,color:"#aaa",marginTop:4}}>¿Sin IVA? El total es el mismo que el neto.</div>}
             {moneda!=="CLP"&&form.monto_total&&(
               <div style={{background:"#f0f7ff",borderRadius:8,padding:"8px 12px",marginTop:8,fontSize:13,color:"#1a5276"}}>
-                Equivale a <strong>{clp(Math.round((parseInt(String(form.monto_total).replace(/[^0-9]/g,""))||0)*exchangeRate))}</strong> CLP
+                Equivale a <strong>{clp(Math.round((parseMonto(form.monto_total))*exchangeRate))}</strong> CLP
               </div>
             )}
           </div>
@@ -799,7 +820,7 @@ function CaptureScreen({entities,categories,nav,userId,onSaved,initEntityId,gues
           </div>
           {participants.length>0&&form.monto_total&&(
             <div style={{background:"#f0f7ff",borderRadius:8,padding:"8px 12px",marginTop:8,fontSize:13,color:"#1a5276"}}>
-              Cada uno: <strong>{("$"+Math.round((parseInt(String(form.monto_total).replace(/\D/g,""))||0)/participants.length).toLocaleString("es-CL"))}</strong>
+              Cada uno: <strong>{("$"+Math.round((parseMonto(form.monto_total))/participants.length).toLocaleString("es-CL"))}</strong>
             </div>
           )}
         </div>
@@ -843,9 +864,9 @@ function ReportScreen({entities,expenses,categories,nav,initParams,onDelete,onUp
     setSaving(true);
     const {data,error}=await supabase.from("expenses").update({
       comercio:editForm.comercio,rut_comercio:editForm.rut_comercio,
-      monto_total:parseInt(String(editForm.monto_total).replace(/\D/g,""))||0,
-      monto_neto:parseInt(String(editForm.monto_neto).replace(/\D/g,""))||0,
-      iva:parseInt(String(editForm.iva).replace(/\D/g,""))||0,
+      monto_total:parseMonto(editForm.monto_total),
+      monto_neto:parseMonto(editForm.monto_neto),
+      iva:parseMonto(editForm.iva),
       fecha:editForm.fecha,tipo_documento:editForm.tipo_documento,
       numero_documento:editForm.numero_documento,categoria:editForm.categoria,
       descripcion:editForm.descripcion,nota:editForm.nota,
@@ -977,7 +998,7 @@ function ReportScreen({entities,expenses,categories,nav,initParams,onDelete,onUp
                   <div style={{flex:1}}><div style={S.label}>Neto</div><input style={S.input} type="number" value={editForm.monto_neto} onChange={e=>{const n=parseInt(e.target.value)||0;setEditForm(f=>({...f,monto_neto:e.target.value,iva:Math.round(n*0.19)||"",monto_total:Math.round(n*1.19)||""}));}}/></div>
                   <div style={{flex:1}}><div style={S.label}>IVA</div><input style={S.input} type="number" value={editForm.iva} onChange={updEdit("iva")}/></div>
                 </div>
-                <div style={{marginBottom:8}}><div style={S.label}>Total *</div><input style={{...S.input,fontWeight:700}} type="number" value={editForm.monto_total} onChange={updEdit("monto_total")}/></div>
+                <div style={{marginBottom:8}}><div style={S.label}>Total *</div><input style={{...S.input,fontWeight:700}} type="text" inputMode="decimal" value={editForm.monto_total} onChange={updEdit("monto_total")}/></div>
                 <div style={{display:"flex",gap:8,marginBottom:8}}>
                   <div style={{flex:1}}><div style={S.label}>Fecha</div><input style={S.input} type="date" value={editForm.fecha} onChange={updEdit("fecha")}/></div>
                   <div style={{flex:1}}><div style={S.label}>Categoría</div><select style={S.input} value={editForm.categoria} onChange={updEdit("categoria")}>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
@@ -1528,7 +1549,7 @@ function GroupSplitScreen({entity,expenses,nav,guestSession}) {
       comercio:exp.comercio||"",rut_comercio:exp.rut_comercio||"",monto_total:exp.monto_total||"",monto_neto:exp.monto_neto||"",iva:exp.iva||"",fecha:exp.fecha||"",tipo_documento:exp.tipo_documento||"boleta",numero_documento:exp.numero_documento||"",categoria:exp.categoria||"Otro",descripcion:exp.descripcion||"",nota:exp.nota||""});};
   const saveEdit=async(expId)=>{
     setSavingEdit(true);
-    await supabase.from("expenses").update({comercio:editForm.comercio,rut_comercio:editForm.rut_comercio,monto_total:parseInt(String(editForm.monto_total).replace(/[^0-9]/g,""))||0,monto_neto:parseInt(String(editForm.monto_neto).replace(/[^0-9]/g,""))||0,iva:parseInt(String(editForm.iva).replace(/[^0-9]/g,""))||0,fecha:editForm.fecha,tipo_documento:editForm.tipo_documento,numero_documento:editForm.numero_documento,categoria:editForm.categoria,descripcion:editForm.descripcion,nota:editForm.nota}).eq("id",expId);
+    await supabase.from("expenses").update({comercio:editForm.comercio,rut_comercio:editForm.rut_comercio,monto_total:parseMonto(editForm.monto_total),monto_neto:parseMonto(editForm.monto_neto),iva:parseMonto(editForm.iva),fecha:editForm.fecha,tipo_documento:editForm.tipo_documento,numero_documento:editForm.numero_documento,categoria:editForm.categoria,descripcion:editForm.descripcion,nota:editForm.nota}).eq("id",expId);
     // Update participants if changed
     if(editForm.participants){
       await supabase.from("expense_participants").delete().eq("expense_id",expId);
@@ -1656,7 +1677,7 @@ Total: $${total.toLocaleString("es-CL")}
                       <div style={{flex:1}}><div style={S.label}>Neto</div><input style={S.input} type="number" value={editForm.monto_neto} onChange={e=>{const n=parseInt(e.target.value)||0;setEditForm(f=>({...f,monto_neto:e.target.value,iva:Math.round(n*0.19)||"",monto_total:Math.round(n*1.19)||""}));}}/></div>
                       <div style={{flex:1}}><div style={S.label}>IVA</div><input style={S.input} type="number" value={editForm.iva} onChange={updEdit("iva")}/></div>
                     </div>
-                    <div style={{marginBottom:8}}><div style={S.label}>Total *</div><input style={{...S.input,fontWeight:700}} type="number" value={editForm.monto_total} onChange={updEdit("monto_total")}/></div>
+                    <div style={{marginBottom:8}}><div style={S.label}>Total *</div><input style={{...S.input,fontWeight:700}} type="text" inputMode="decimal" value={editForm.monto_total} onChange={updEdit("monto_total")}/></div>
                     <div style={{display:"flex",gap:8,marginBottom:8}}>
                       <div style={{flex:1}}><div style={S.label}>Fecha</div><input style={S.input} type="date" value={editForm.fecha} onChange={updEdit("fecha")}/></div>
                       <div style={{flex:1}}><div style={S.label}>Categoría</div><select style={S.input} value={editForm.categoria} onChange={updEdit("categoria")}>{CATS.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
@@ -1681,7 +1702,7 @@ Total: $${total.toLocaleString("es-CL")}
                       </div>
                       {(editForm.participants||members.map(x=>x.id)).length>0&&editForm.monto_total&&(
                         <div style={{background:"#f0f7ff",borderRadius:8,padding:"8px 12px",marginTop:6,fontSize:13,color:"#1a5276"}}>
-                          Cada uno: <strong>{clp(Math.round((parseInt(String(editForm.monto_total).replace(/[^0-9]/g,""))||0)/Math.max((editForm.participants||members.map(x=>x.id)).length,1)))}</strong>
+                          Cada uno: <strong>{clp(Math.round((parseMonto(editForm.monto_total))/Math.max((editForm.participants||members.map(x=>x.id)).length,1)))}</strong>
                         </div>
                       )}
                     </div>
@@ -1875,9 +1896,9 @@ function EntityExpensesScreen({entity,expenses,categories,entities,nav,onDelete,
     setSaving(true);
     const {data,error}=await supabase.from("expenses").update({
       comercio:editForm.comercio,rut_comercio:editForm.rut_comercio,
-      monto_total:parseInt(String(editForm.monto_total).replace(/[^0-9]/g,""))||0,
-      monto_neto:parseInt(String(editForm.monto_neto).replace(/[^0-9]/g,""))||0,
-      iva:parseInt(String(editForm.iva).replace(/[^0-9]/g,""))||0,
+      monto_total:parseMonto(editForm.monto_total),
+      monto_neto:parseMonto(editForm.monto_neto),
+      iva:parseMonto(editForm.iva),
       fecha:editForm.fecha,tipo_documento:editForm.tipo_documento,
       numero_documento:editForm.numero_documento,categoria:editForm.categoria,
       descripcion:editForm.descripcion,nota:editForm.nota,
@@ -2020,7 +2041,7 @@ function EntityExpensesScreen({entity,expenses,categories,entities,nav,onDelete,
                   <div style={{flex:1}}><div style={S.label}>Neto</div><input style={S.input} type="number" value={editForm.monto_neto} onChange={e=>{const n=parseInt(e.target.value)||0;setEditForm(f=>({...f,monto_neto:e.target.value,iva:Math.round(n*0.19)||"",monto_total:Math.round(n*1.19)||""}));}}/></div>
                   <div style={{flex:1}}><div style={S.label}>IVA</div><input style={S.input} type="number" value={editForm.iva} onChange={updEdit("iva")}/></div>
                 </div>
-                <div style={{marginBottom:8}}><div style={S.label}>Total *</div><input style={{...S.input,fontWeight:700,fontSize:16}} type="number" value={editForm.monto_total} onChange={updEdit("monto_total")}/></div>
+                <div style={{marginBottom:8}}><div style={S.label}>Total *</div><input style={{...S.input,fontWeight:700,fontSize:16}} type="text" inputMode="decimal" value={editForm.monto_total} onChange={updEdit("monto_total")}/></div>
                 <div style={{display:"flex",gap:8,marginBottom:8}}>
                   <div style={{flex:1}}><div style={S.label}>Fecha</div><input style={S.input} type="date" value={editForm.fecha} onChange={updEdit("fecha")}/></div>
                   <div style={{flex:1}}><div style={S.label}>Categoría</div><select style={S.input} value={editForm.categoria} onChange={updEdit("categoria")}>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
