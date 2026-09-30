@@ -599,13 +599,16 @@ function CaptureScreen({entities,categories,nav,userId,onSaved,initEntityId,gues
     // payer_user_id = who actually paid (may differ in group expenses)
     // payer_guest_id = if the payer is a guest (no account)
     const payerIsGuest = typeof payer === "string" && payer.startsWith("guest_");
-    const payerUserId = payerIsGuest ? null : (groupMembers.length>0 ? payer : userId);
-    const payerGuestId = payerIsGuest ? payer.replace("guest_","") : null;
+    const currentUserIsGuest = typeof userId === "string" && userId.startsWith("guest_");
+    const realUserId = currentUserIsGuest ? null : userId;
+    const currentGuestId = currentUserIsGuest ? userId.replace("guest_","") : null;
+    const payerUserId = payerIsGuest ? null : (groupMembers.length>0 ? payer : realUserId);
+    const payerGuestId = payerIsGuest ? payer.replace("guest_","") : currentGuestId;
     const {data,error}=await supabase.from("expenses").insert({
       entity_id:form.entity_id,
-      user_id: userId,              // ← always the auth user (RLS requires this)
-      payer_user_id: payerUserId,   // ← who actually paid (may be different user)
-      payer_guest_id: payerGuestId, // ← if payer is a guest without account
+      user_id: realUserId,          // ← always a real uuid or null for guests (RLS requires this)
+      payer_user_id: payerIsGuest ? null : payerUserId,
+      payer_guest_id: payerGuestId, // ← guest id if payer/registrar is a guest
       comercio:form.comercio, rut_comercio:form.rut_comercio,
       monto_total:montoEnCLP,
       monto_neto:moneda==="CLP"?(parseMonto(form.monto_neto)):Math.round((parseMonto(form.monto_neto))*exchangeRate),
