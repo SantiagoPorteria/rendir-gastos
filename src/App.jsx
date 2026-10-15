@@ -1,4 +1,4 @@
-// v2.4 - debug split
+// v2.5 - fix split payer not in members
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -1526,16 +1526,19 @@ function GroupSplitScreen({entity,expenses,nav,guestSession}) {
       const base=Math.floor(total/n);
       const remainder=total-(base*n);
       const payerId=exp.payer_guest_id?("guest_"+exp.payer_guest_id):(exp.payer_user_id||exp.user_id);
-      if(paid[payerId]!==undefined) paid[payerId]+=total;
-      // distribute base share to all, add remainder to first participant
-      parts.forEach((uid,i)=>{if(owes[uid]!==undefined)owes[uid]+=base+(i===0?remainder:0);});
+      // if payer is not in members, still track their payment
+      if(paid[payerId]===undefined) paid[payerId]=0;
+      paid[payerId]+=total;
+      // distribute share only to known members; unknown participants are ignored
+      const knownParts=parts.filter(uid=>owes[uid]!==undefined);
+      if(knownParts.length===0) return;
+      const kn=knownParts.length;
+      const kbase=Math.floor(total/kn);
+      const kremainder=total-(kbase*kn);
+      knownParts.forEach((uid,i)=>{owes[uid]+=kbase+(i===0?kremainder:0);});
     });
     const balance={};
     members.forEach(m=>{balance[m.id]=(paid[m.id]||0)-(owes[m.id]||0);});
-    const totalPaid=Object.values(paid).reduce((a,b)=>a+b,0);
-    const totalOwes=Object.values(owes).reduce((a,b)=>a+b,0);
-    const totalBal=Object.values(balance).reduce((a,b)=>a+b,0);
-    console.log("SPLIT DEBUG","paid:",paid,"owes:",owes,"balance:",balance,"totalPaid:",totalPaid,"totalOwes:",totalOwes,"balanceSum:",totalBal,"expenses:",groupExpenses.length,"expParticipantsKeys:",Object.keys(expParticipants).length);
     return {paid,owes,balance};
   };
 
