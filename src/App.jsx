@@ -1,4 +1,4 @@
-// v2.3 - fix split redondeo forzado
+// v2.4 - debug split
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -1532,6 +1532,10 @@ function GroupSplitScreen({entity,expenses,nav,guestSession}) {
     });
     const balance={};
     members.forEach(m=>{balance[m.id]=(paid[m.id]||0)-(owes[m.id]||0);});
+    const totalPaid=Object.values(paid).reduce((a,b)=>a+b,0);
+    const totalOwes=Object.values(owes).reduce((a,b)=>a+b,0);
+    const totalBal=Object.values(balance).reduce((a,b)=>a+b,0);
+    console.log("SPLIT DEBUG","paid:",paid,"owes:",owes,"balance:",balance,"totalPaid:",totalPaid,"totalOwes:",totalOwes,"balanceSum:",totalBal,"expenses:",groupExpenses.length,"expParticipantsKeys:",Object.keys(expParticipants).length);
     return {paid,owes,balance};
   };
 
