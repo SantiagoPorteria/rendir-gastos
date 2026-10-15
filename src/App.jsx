@@ -1521,10 +1521,14 @@ function GroupSplitScreen({entity,expenses,nav,guestSession}) {
     members.forEach(m=>{paid[m.id]=0;owes[m.id]=0;});
     groupExpenses.forEach(exp=>{
       const parts=expParticipants[exp.id]||members.map(m=>m.id);
-      const share=Math.round((exp.monto_total||0)/Math.max(parts.length,1));
+      const total=exp.monto_total||0;
+      const n=Math.max(parts.length,1);
+      const base=Math.floor(total/n);
+      const remainder=total-(base*n);
       const payerId=exp.payer_guest_id?("guest_"+exp.payer_guest_id):(exp.payer_user_id||exp.user_id);
-      if(paid[payerId]!==undefined) paid[payerId]+=(exp.monto_total||0);
-      parts.forEach(uid=>{if(owes[uid]!==undefined)owes[uid]+=share;});
+      if(paid[payerId]!==undefined) paid[payerId]+=total;
+      // distribute base share to all, add remainder to first participant
+      parts.forEach((uid,i)=>{if(owes[uid]!==undefined)owes[uid]+=base+(i===0?remainder:0);});
     });
     const balance={};
     members.forEach(m=>{balance[m.id]=(paid[m.id]||0)-(owes[m.id]||0);});
