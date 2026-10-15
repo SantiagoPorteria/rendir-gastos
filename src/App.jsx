@@ -1,4 +1,4 @@
-// v2.1 - fix decimales con coma
+// v2.2 - fix split redondeo
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
