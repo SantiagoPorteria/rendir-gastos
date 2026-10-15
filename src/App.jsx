@@ -1548,17 +1548,30 @@ function GroupSplitScreen({entity,expenses,nav,guestSession}) {
 
   const startEdit=(exp)=>{
     setEditing(exp.id);
+    const currentPayerId=exp.payer_guest_id?("guest_"+exp.payer_guest_id):(exp.payer_user_id||exp.user_id||"");
     setEditForm({
       participants: expParticipants[exp.id]||null,
+      payer: currentPayerId,
       comercio:exp.comercio||"",rut_comercio:exp.rut_comercio||"",monto_total:exp.monto_total||"",monto_neto:exp.monto_neto||"",iva:exp.iva||"",fecha:exp.fecha||"",tipo_documento:exp.tipo_documento||"boleta",numero_documento:exp.numero_documento||"",categoria:exp.categoria||"Otro",descripcion:exp.descripcion||"",nota:exp.nota||""});};
   const saveEdit=async(expId)=>{
     setSavingEdit(true);
-    await supabase.from("expenses").update({comercio:editForm.comercio,rut_comercio:editForm.rut_comercio,monto_total:parseMonto(editForm.monto_total),monto_neto:parseMonto(editForm.monto_neto),iva:parseMonto(editForm.iva),fecha:editForm.fecha,tipo_documento:editForm.tipo_documento,numero_documento:editForm.numero_documento,categoria:editForm.categoria,descripcion:editForm.descripcion,nota:editForm.nota}).eq("id",expId);
+    // Resolve payer fields from editForm.payer
+    const editPayer=editForm.payer||"";
+    const editPayerIsGuest=editPayer.startsWith("guest_");
+    const editPayerUserId=editPayerIsGuest?null:editPayer||null;
+    const editPayerGuestId=editPayerIsGuest?editPayer.replace("guest_",""):null;
+    await supabase.from("expenses").update({
+      comercio:editForm.comercio,rut_comercio:editForm.rut_comercio,
+      monto_total:parseMonto(editForm.monto_total),monto_neto:parseMonto(editForm.monto_neto),iva:parseMonto(editForm.iva),
+      fecha:editForm.fecha,tipo_documento:editForm.tipo_documento,numero_documento:editForm.numero_documento,
+      categoria:editForm.categoria,descripcion:editForm.descripcion,nota:editForm.nota,
+      payer_user_id:editPayerUserId,payer_guest_id:editPayerGuestId,
+    }).eq("id",expId);
     // Update participants if changed
     if(editForm.participants){
       await supabase.from("expense_participants").delete().eq("expense_id",expId);
       if(editForm.participants.length>0){
-        await supabase.from("expense_participants").insert(editForm.participants.map(uid=>({expense_id:expId,user_id:uid})));
+        await supabase.from("expense_participants").insert(editForm.participants.map(uid=>{const isG=uid.startsWith("guest_");return{expense_id:expId,user_id:isG?null:uid,guest_id:isG?uid.replace("guest_",""):null};}));
       }
       setExpParticipants(prev=>({...prev,[expId]:editForm.participants}));
     }
@@ -1687,6 +1700,18 @@ Total: $${total.toLocaleString("es-CL")}
                       <div style={{flex:1}}><div style={S.label}>Categoría</div><select style={S.input} value={editForm.categoria} onChange={updEdit("categoria")}>{CATS.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
                     </div>
                     <div style={{marginBottom:10}}><div style={S.label}>Nota</div><input style={S.input} value={editForm.nota} onChange={updEdit("nota")}/></div>
+                    <div style={{marginBottom:10}}>
+                      <div style={S.label}>💳 ¿Quién pagó?</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:4}}>
+                        {members.map(m=>(
+                          <button key={m.id} onClick={()=>setEditForm(f=>({...f,payer:m.id}))}
+                            style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:8,border:`1.5px solid ${editForm.payer===m.id?"#b7770d":"#e0e0e0"}`,background:editForm.payer===m.id?"#fff8e1":"#fff",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                            <span style={{fontSize:16}}>{editForm.payer===m.id?"💳":"○"}</span>
+                            <span style={{fontWeight:600,fontSize:13,color:editForm.payer===m.id?"#b7770d":"#555"}}>{m.nombre||m.email}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <div style={{marginBottom:10}}>
                       <div style={S.label}>¿Quiénes participan en este gasto?</div>
                       <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:4}}>
