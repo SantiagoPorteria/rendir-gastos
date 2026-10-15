@@ -1,4 +1,4 @@
-// v2.2 - fix split redondeo
+// v2.3 - fix split redondeo forzado
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
