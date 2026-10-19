@@ -1,4 +1,4 @@
-// v2.5 - fix split payer not in members
+// v2.6 - no cache headers
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
