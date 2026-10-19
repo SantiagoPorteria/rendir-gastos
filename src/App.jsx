@@ -1,4 +1,4 @@
-// v2.6 - no cache headers
+// v2.7 - pagado por en excel
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -842,7 +842,7 @@ function CaptureScreen({entities,categories,nav,userId,onSaved,initEntityId,gues
 }
 
 // ─── REPORT ───────────────────────────────────────────────────────────────────
-function ReportScreen({entities,expenses,categories,nav,initParams,onDelete,onUpdate}) {
+function ReportScreen({entities,expenses,categories,nav,initParams,onDelete,onUpdate,profile,userId}) {
   const [filterEntity,setFilterEntity]=useState(initParams?.entityId||"all");
   const [filterMonth,setFilterMonth]=useState("all");
   const [deleting,setDeleting]=useState(null);
@@ -898,16 +898,20 @@ function ReportScreen({entities,expenses,categories,nav,initParams,onDelete,onUp
     const entLabel=filterEntity==="all"?"Todos":entities.find(e=>e.id===filterEntity)?.label||"";
     const rows=[
       [`RENDICIÓN — ${entLabel} — ${filterMonth==="all"?"Todos los meses":ym2label(filterMonth)}`],[],
-      ["#","Fecha","Comercio","RUT","Tipo Doc","N° Doc","Categoría","Entidad","Neto","IVA","Total","Nota"],
+      ["#","Fecha","Comercio","RUT","Tipo Doc","N° Doc","Categoría","Entidad","Pagado por","Neto","IVA","Total","Nota"],
     ];
+    const myName=profile?.nombre||profile?.email||"Yo";
     filtered.forEach((exp,i)=>{
       const ent=entities.find(e=>e.id===exp.entity_id);
-      rows.push([i+1,iso2d(exp.fecha),exp.comercio||"",exp.rut_comercio||"",exp.tipo_documento||"",exp.numero_documento||"",exp.categoria||"",ent?.label||"",exp.monto_neto||0,exp.iva||0,exp.monto_total||0,exp.nota||""]);
+      let pagadoPor=myName;
+      if(exp.payer_user_id&&exp.payer_user_id!==userId) pagadoPor=exp.payer_user_id;
+      if(exp.payer_guest_id) pagadoPor="Invitado";
+      rows.push([i+1,iso2d(exp.fecha),exp.comercio||"",exp.rut_comercio||"",exp.tipo_documento||"",exp.numero_documento||"",exp.categoria||"",ent?.label||"",pagadoPor,exp.monto_neto||0,exp.iva||0,exp.monto_total||0,exp.nota||""]);
     });
-    rows.push([],["","","","","","","","TOTAL",totalNeto,totalIva,total]);
+    rows.push([],["","","","","","","","","TOTAL",totalNeto,totalIva,total]);
     const wb=XLSX.utils.book_new();
     const ws=XLSX.utils.aoa_to_sheet(rows);
-    ws["!cols"]=[{wch:4},{wch:10},{wch:26},{wch:14},{wch:10},{wch:10},{wch:16},{wch:22},{wch:12},{wch:10},{wch:12},{wch:24}];
+    ws["!cols"]=[{wch:4},{wch:10},{wch:26},{wch:14},{wch:10},{wch:10},{wch:16},{wch:22},{wch:16},{wch:12},{wch:10},{wch:12},{wch:24}];
     XLSX.utils.book_append_sheet(wb,ws,"Rendición");
     XLSX.writeFile(wb,`Rendicion_${entLabel}_${filterMonth}.xlsx`);
     setExporting(null);
